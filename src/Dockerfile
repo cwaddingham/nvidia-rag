@@ -1,55 +1,36 @@
-ARG BASE_IMAGE_URL=nvcr.io/nvidia/base/ubuntu
-ARG BASE_IMAGE_TAG=22.04_20240212
+# Base image
+FROM python:3.12-slim
 
-FROM ${BASE_IMAGE_URL}:${BASE_IMAGE_TAG}
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
 
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV DEBIAN_FRONTEND noninteractive
+# Set working directory
+WORKDIR /app
 
-# Install required ubuntu packages for setting up python 3.10
-RUN apt update && \
-    apt install -y curl software-properties-common libgl1 libglib2.0-0 libmagic1 file && \
-    add-apt-repository ppa:deadsnakes/ppa && \
-    apt update && apt install -y python3.10 && \
-    apt-get clean
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir typing-extensions>=4.8.0
 
-# Install pip for python3.10
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10
+# Copy application code
+COPY . .
 
-RUN rm -rf /var/lib/apt/lists/*
+# Environment variables for Pinecone Local
+ENV PINECONE_API_KEY="dummy-key-for-local"
+ENV PINECONE_HOST="http://pinecone:5080"
+ENV PINECONE_INDEX_NAME="rag-index"
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 
-# Uninstall build packages
-RUN apt autoremove -y curl software-properties-common
-
-# Download the sources of apt packages within the container for standard legal compliance
-RUN sed -i 's/# deb-src/deb-src/g' /etc/apt/sources.list
-RUN apt update
-# xz-utils is needed to pull the source and unpack them correctly
-RUN apt install xz-utils -y
-RUN mkdir -p /legal/source
-WORKDIR /legal/source
-# Read installed packages, strip all but the package names, pipe to 'apt source' to download respective packages
-RUN apt list --installed |  grep -i installed | sed 's|\(.*\)/.*|\1|' | xargs apt source --download-only
-# The source is saved in directories as well as tarballs in the current dir
-RUN rm xz-utils*
-COPY LICENSE-3rd-party.txt /legal/
-
-# Install common dependencies for all examples
-RUN --mount=type=cache,id=pip_cache,target=/root/.cache/pip,sharing=locked \
-    --mount=type=bind,source=./requirements.txt,target=/opt/requirements.txt \
-    pip3 install --no-cache-dir -r /opt/requirements.txt
-
-# Set environment variables needed for Text splitter
-RUN mkdir /tmp-data/;
+# Create directory for uploaded files
+RUN mkdir -p /tmp-data/uploaded_files
 RUN chmod 777 -R /tmp-data
-RUN chown 1000:1000 -R /tmp-data
-ENV HF_HOME=/tmp-data
 
-WORKDIR /workspace
+# Expose port
+EXPOSE 8000
 
-COPY ./ /workspace
-
-WORKDIR /workspace/
-
-ENTRYPOINT ["uvicorn", "src.server:app"]
-# ENTRYPOINT ["/bin/bash"]
+# Start the application
+CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]

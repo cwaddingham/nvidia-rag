@@ -24,6 +24,8 @@ from typing import Dict
 from typing import List
 from typing import Union
 from uuid import uuid4
+import signal
+import sys
 
 import bleach
 from fastapi import FastAPI, Request, File, Form, Depends, HTTPException, Query, BackgroundTasks
@@ -36,20 +38,10 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import constr
 from pydantic import validator
-from pydantic import field_validator
-from pymilvus.exceptions import MilvusException
-from pymilvus.exceptions import MilvusUnavailableException
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
-from langchain_core.documents import Document
-from src.chains import UnstructuredRAG
-from .utils import (
-    get_config,
-    get_minio_operator,
-    get_unique_thumbnail_id,
-    check_and_print_services_health,
-    check_all_services_health,
-    print_health_report
-)
+
+from pinecone import Pinecone, ServerlessSpec, ApiException as PineconeApiException
+from .utils.pinecone_utils import get_pinecone_client, get_index
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
@@ -560,11 +552,82 @@ class NIMServiceHealthInfo(BaseServiceHealthInfo):
     http_status: Optional[int] = None
 
 class HealthResponse(BaseModel):
-    """Overall health response with specialized fields for each service type"""
-    message: str = Field(max_length=4096, pattern=r'[\s\S]*', default="Service is up.")
-    databases: List[DatabaseHealthInfo] = Field(default_factory=list)
-    object_storage: List[StorageHealthInfo] = Field(default_factory=list)
-    nim: List[NIMServiceHealthInfo] = Field(default_factory=list)  # Unified category for NIM services
+    message: str = Field(max_length=4096, pattern=r'[\s\S]*', default="")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Pinecone on startup"""
+    pc = get_pinecone_client()
+    app.state.pinecone = pc
+
+    # Create index if it doesn't exist
+    index_name = os.getenv("PINECONE_INDEX_NAME", "rag-index")
+    dimension = int(os.getenv("PINECONE_DIMENSION", "1536"))
+    metric = os.getenv("PINECONE_METRIC", "cosine")
+    cloud = os.getenv("PINECONE_CLOUD", "aws")
+    region = os.getenv("PINECONE_REGION", "us-west-2")
+    
+    # Check if index exists using has_index
+    if not pc.has_index(index_name):
+        pc.create_index(
+            name=index_name,
+            dimension=dimension,
+            metric=metric,
+            vector_type="dense",
+            deletion_protection="disabled",
+            spec=ServerlessSpec(cloud=cloud, region=region)
+        )
+    
+    # Get index for use in app
+    app.state.index = pc.Index(index_name)
+
+
+@app.on_event("startup")
+def import_example() -> None:
+    """
+    Import the example class from the specified example file.
+    """
+
+    # Path of the example directory
+    example_path = os.environ.get("EXAMPLE_PATH", "src/")
+    file_location = os.path.join(EXAMPLE_DIR, example_path)
+
+    # Walk through the directory to find Python files
+    for root, _, files in os.walk(file_location):
+        for file in files:
+            if not file.endswith(".py") or file == "__init__.py":
+                continue
+
+            file_path = os.path.join(root, file)
+
+            try:
+                # Generate the module name relative to the package
+                relative_module = os.path.relpath(file_path, EXAMPLE_DIR).replace("/", ".").replace(".py", "")
+                print(f"Attempting to import module: {relative_module}")
+
+                # Import the module dynamically
+                module = importlib.import_module(relative_module)
+
+                # Look for classes implementing the required methods
+                for name, cls in getmembers(module, isclass):
+                    if name == "BaseExample":
+                        continue
+
+                    # Ensure the class implements required methods
+                    if set(["ingest_docs", "rag_chain", "llm_chain"]).issubset(set(dir(cls))):
+                        instance = cls
+                        app.example = instance
+                        print(f"Successfully loaded class: {name}")
+                        return
+
+            except Exception as e:
+                print(f"Failed to import {file_path}: {e}")
+                continue
+
+    # Raise an error if no valid class is found
+    raise NotImplementedError(f"Could not find a valid example class in {file_location}")
+
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -906,20 +969,23 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
         logger.warning(f"Request cancelled during response generation. {str(e)}")
         return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
 
-    except (MilvusException, MilvusUnavailableException) as e:
-        exception_msg = ("Error from milvus server. Please ensure you have ingested some documents. "
+    except PineconeApiException as e:
+        exception_msg = ("Error from Pinecone server. Please ensure you have ingested some documents. "
                          "Please check rag-server logs for more details.")
+        chain_response = ChainResponse()
+        response_choice = ChainResponseChoices(index=0,
+                                               message=Message(role="assistant", content=exception_msg),
+                                               delta=Message(role="assistant", content=exception_msg),
+                                               finish_reason="stop")
+        chain_response.choices.append(response_choice)
+        chain_response.model = prompt.model
+        chain_response.object = "chat.completion.chunk"
+        chain_response.created = int(time.time())
         logger.error(
-            "Error from Milvus database in /generate endpoint. Please ensure you have ingested some documents. " +
+            "Error from Pinecone database in /generate endpoint. Please ensure you have ingested some documents. " +
             "Error details: %s",
             e)
         return StreamingResponse(error_response_generator(exception_msg),
-                                 media_type="text/event-stream",
-                                 status_code=500)
-
-    except Exception as e:
-        logger.error("Error from /generate endpoint. Error details: %s", e)
-        return StreamingResponse(error_response_generator(FALLBACK_EXCEPTION_MSG),
                                  media_type="text/event-stream",
                                  status_code=500)
 
@@ -1000,5 +1066,43 @@ async def document_search(request: Request, data: DocumentSearch) -> Dict[str, L
         logger.warning(f"Request cancelled during document search. {str(e)}")
         return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
     except Exception as e:
-        logger.error("Error from POST /search endpoint. Error details: %s", e)
-        return JSONResponse(content={"message": "Error occurred while searching documents."}, status_code=500)
+        logger.error("Error from DELETE /documents endpoint. Error details: %s", e)
+        return JSONResponse(content={"message": f"Error deleting document {filename}"}, status_code=500)
+
+
+@app.get("/collections", tags=["Ingestion APIs"], response_model=List[str])
+async def get_collections():
+    """
+    Endpoint to get a list of index names from Pinecone.
+    Returns a list of collection names.
+    """
+    pc = app.state.pinecone
+    indexes = pc.list_indexes()
+    return [index.name for index in indexes]
+
+def signal_handler(sig, frame):
+    """Handle graceful shutdown on SIGINT/SIGTERM"""
+    logger.info("Shutting down gracefully...")
+    try:
+        if hasattr(app.state, 'pinecone'):
+            # Clean up Pinecone connection if needed
+            pass
+        sys.exit(0)
+    except Exception as e:
+        logger.error(f"Error during shutdown: {str(e)}")
+        sys.exit(1)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on server shutdown"""
+    logger.info("Cleaning up resources...")
+    try:
+        if hasattr(app.state, 'pinecone'):
+            # Clean up Pinecone connection if needed
+            pass
+    except Exception as e:
+        logger.error(f"Error during cleanup: {str(e)}")

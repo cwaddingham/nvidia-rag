@@ -1,0 +1,30 @@
+services:
+  pinecone:
+    image: ghcr.io/pinecone-io/pinecone-local:latest
+    environment: 
+      PORT: 5080
+      PINECONE_HOST: localhost
+    ports: 
+      - "5080-5090:5080-5090"
+    platform: linux/amd64
+
+  dense-index:
+    image: ghcr.io/pinecone-io/pinecone-index:latest
+    container_name: dense-index
+    environment:
+      PORT: 5081
+      INDEX_TYPE: serverless
+      VECTOR_TYPE: dense
+      DIMENSION: 1536  # Adjust based on your embedding dimension
+      METRIC: cosine
+    ports:
+      - "5081:5081"
+    platform: linux/amd64
+    depends_on:
+      - pinecone 
+
+  rag-server:
+    environment:
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME} 

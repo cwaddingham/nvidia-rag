@@ -23,33 +23,40 @@ class VectorStoreConfig(ConfigWizard):
     """Configuration class for the Vector Store connection.
 
     :cvar name: Name of vector store
-    :cvar url: URL of Vector Store
+    :cvar api_key: Pinecone API key
+    :cvar environment: Pinecone environment
+    :cvar index_name: Name of the Pinecone index
     """
 
     name: str = configfield(
         "name",
-        default="milvus",
-        help_txt="The name of vector store",  # supports milvus
+        default="pinecone",
+        help_txt="The name of vector store (pinecone)",
     )
-    url: str = configfield(
-        "url",
-        default="http://milvus:19530",
-        help_txt="The host of the machine running Vector Store DB",
+    api_key: str = configfield(
+        "api_key",
+        default="",
+        help_txt="The Pinecone API key",
     )
-    nlist: int = configfield(
-        "nlist",
-        default=64,
-        help_txt="Number of cluster units",  # IVF Flat milvus
+    environment: str = configfield(
+        "environment", 
+        default="gcp-starter",
+        help_txt="The Pinecone environment (e.g., gcp-starter, us-west1-gcp)",
     )
-    nprobe: int = configfield(
-        "nprobe",
-        default=16,
-        help_txt="Number of units to query",  # IVF Flat milvus
+    index_name: str = configfield(
+        "index_name",
+        default="rag-index",
+        help_txt="Name of the Pinecone index",
     )
-    index_type: str = configfield(
-        "index_type",
-        default="GPU_CAGRA",
-        help_txt="Index of the vector db",  # IVF Flat for milvus
+    dimension: int = configfield(
+        "dimension",
+        default=1536,
+        help_txt="Dimension of vectors to store",
+    )
+    metric: str = configfield(
+        "metric",
+        default="cosine",
+        help_txt="Distance metric to use (cosine, euclidean, or dotproduct)",
     )
 
     enable_gpu_index: bool = configfield(
