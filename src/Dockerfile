@@ -23,6 +23,8 @@ COPY . .
 ENV PINECONE_API_KEY="dummy-key-for-local"
 ENV PINECONE_HOST="http://pinecone:5080"
 ENV PINECONE_INDEX_NAME="rag-index"
+ENV NV_INGEST_HOST="http://nv-ingest:7671"
+ENV NVIDIA_API_KEY=${NVIDIA_API_KEY}
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Create directory for uploaded files
@@ -33,4 +35,4 @@ RUN chmod 777 -R /tmp-data
 EXPOSE 8000
 
 # Start the application
-CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8000"]

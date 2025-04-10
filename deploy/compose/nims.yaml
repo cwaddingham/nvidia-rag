@@ -294,6 +294,22 @@ services:
       retries: 100
     profiles: ["mixtral-8x22b"]
 
+  nims:
+    image: nvcr.io/nvidia/ai-foundation/nims:24.02
+    ports:
+      - "8081:8081"
+    environment:
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - NVIDIA_DEPLOYMENT_FRAMEWORK=local
+    volumes:
+      - ../../tmp-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+
 networks:
   default:
     name: nvidia-rag

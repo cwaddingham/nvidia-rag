@@ -1,0 +1,6 @@
+include:
+  - base.yaml
+  - vectordb.yaml
+
+profiles:
+  - local  # Enable local profile by default

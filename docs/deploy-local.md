@@ -11,12 +11,14 @@ This guide covers setting up the RAG Blueprint using Pinecone Local for developm
 ## Quick Start
 
 1. Clone the repository and navigate to the project directory:
+
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/rag.git
 cd rag
 ```
 
 2. Start the services using Docker Compose:
+
 ```bash
 docker compose -f docker-compose.local.yaml up
 ```
@@ -45,16 +47,19 @@ Be aware of these Pinecone Local limitations:
 ## Verifying the Setup
 
 1. Check if services are running:
+
 ```bash
 docker compose -f docker-compose.local.yaml ps
 ```
 
 2. Test the Pinecone Local endpoint:
+
 ```bash
 curl http://localhost:5080/health
 ```
 
 3. Access the RAG UI:
+
 ```
 http://localhost:8000
 ```
@@ -71,6 +76,7 @@ http://localhost:8000
 
 3. **Monitor Operations**:
    - Check Docker logs for issues:
+
      ```bash
      docker compose -f docker-compose.local.yaml logs -f
      ```

@@ -8,17 +8,19 @@ This guide covers deploying the RAG Blueprint using Pinecone's cloud service for
 - Docker and Docker Compose
 - NVIDIA GPU drivers (for GPU acceleration)
 - Pinecone account with API key
-- Active Pinecone environment
+- Active Pinecone cloud account
 
 ## Setup
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/rag.git
 cd rag
 ```
 
 2. Set up environment variables:
+
 ```bash
 # Create .env file
 cat << EOF > .env
@@ -29,6 +31,7 @@ EOF
 ```
 
 3. Start the services:
+
 ```bash
 docker compose -f docker-compose.cloud.yaml up
 ```
@@ -36,11 +39,14 @@ docker compose -f docker-compose.cloud.yaml up
 ## Configuration Options
 
 ### Required Environment Variables
+
 - `PINECONE_API_KEY`: Your Pinecone API key
-- `PINECONE_ENVIRONMENT`: Your environment (e.g., "gcp-starter")
+- `PINECONE_CLOUD`: Your cloud provider (aws, gcp, azure)
+- `PINECONE_REGION`: Region in your chosen cloud (e.g., us-east-1)
 - `PINECONE_INDEX_NAME`: Name for your index
 
 ### Optional Configuration
+
 - `PINECONE_DIMENSION`: Vector dimension (default: 1536)
 - `PINECONE_METRIC`: Distance metric (default: "cosine")
 
@@ -64,6 +70,7 @@ docker compose -f docker-compose.cloud.yaml up
 ## Monitoring and Maintenance
 
 1. **Health Checks**:
+
 ```bash
 # Check RAG server status
 curl http://localhost:8000/health
@@ -73,6 +80,7 @@ docker compose -f docker-compose.cloud.yaml ps
 ```
 
 2. **Logging**:
+
 ```bash
 # View service logs
 docker compose -f docker-compose.cloud.yaml logs -f

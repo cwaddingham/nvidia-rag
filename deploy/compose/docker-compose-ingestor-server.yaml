@@ -1,6 +1,5 @@
 services:
-
-  # Main ingestor server which is responsible for ingestion
+# Main ingestor server which is responsible for ingestion
   ingestor-server:
     container_name: ingestor-server
     image: nvcr.io/nvidia/blueprint/ingestor-server:${TAG:-2.0.0}

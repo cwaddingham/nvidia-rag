@@ -28,19 +28,22 @@ import signal
 import sys
 
 import bleach
-from fastapi import FastAPI, Request, File, Form, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, File, Request, UploadFile, HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import constr
 from pydantic import validator
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
+from fastapi.staticfiles import StaticFiles
 
-from pinecone import Pinecone, ServerlessSpec, ApiException as PineconeApiException
+from pinecone import Pinecone, ServerlessSpec, PineconeException
+from .document_processor import DocumentProcessor
 from .utils.pinecone_utils import get_pinecone_client, get_index
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
@@ -61,12 +64,9 @@ tags_metadata = [
 ]
 
 # create the FastAPI server
-app = FastAPI(root_path=f"/v1", title="APIs for NVIDIA RAG Server",
-    description="This API schema describes all the retriever endpoints exposed for NVIDIA RAG server Blueprint",
-    version="1.0.0",
-        docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_tags=tags_metadata,
+app = FastAPI(
+    title="NVIDIA RAG Server",
+    openapi_tags=tags_metadata
 )
 
 # Allow access in browser from RAG UI and Storybook (development)
@@ -79,6 +79,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 EXAMPLE_DIR = "./"
 MINIO_OPERATOR = get_minio_operator()
@@ -583,52 +585,6 @@ async def startup_event():
     app.state.index = pc.Index(index_name)
 
 
-@app.on_event("startup")
-def import_example() -> None:
-    """
-    Import the example class from the specified example file.
-    """
-
-    # Path of the example directory
-    example_path = os.environ.get("EXAMPLE_PATH", "src/")
-    file_location = os.path.join(EXAMPLE_DIR, example_path)
-
-    # Walk through the directory to find Python files
-    for root, _, files in os.walk(file_location):
-        for file in files:
-            if not file.endswith(".py") or file == "__init__.py":
-                continue
-
-            file_path = os.path.join(root, file)
-
-            try:
-                # Generate the module name relative to the package
-                relative_module = os.path.relpath(file_path, EXAMPLE_DIR).replace("/", ".").replace(".py", "")
-                print(f"Attempting to import module: {relative_module}")
-
-                # Import the module dynamically
-                module = importlib.import_module(relative_module)
-
-                # Look for classes implementing the required methods
-                for name, cls in getmembers(module, isclass):
-                    if name == "BaseExample":
-                        continue
-
-                    # Ensure the class implements required methods
-                    if set(["ingest_docs", "rag_chain", "llm_chain"]).issubset(set(dir(cls))):
-                        instance = cls
-                        app.example = instance
-                        print(f"Successfully loaded class: {name}")
-                        return
-
-            except Exception as e:
-                print(f"Failed to import {file_path}: {e}")
-                continue
-
-    # Raise an error if no valid class is found
-    raise NotImplementedError(f"Could not find a valid example class in {file_location}")
-
-
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
     return JSONResponse(
@@ -703,124 +659,51 @@ async def health_check(check_dependencies: bool = False):
     """
 
     response_message = "Service is up."
-    logger.info("Checking service health...")
-    
-    # Initialize with default response
-    response = HealthResponse(message=response_message)
-    
-    # Only perform detailed service checks if requested
-    if check_dependencies:
+    return HealthResponse(message=response_message)
+
+
+@app.post("/documents", tags=["Ingestion APIs"])
+async def upload_documents(files: List[UploadFile] = File(...)):
+    """Upload documents for ingestion"""
+    try:
+        if not files:
+            raise HTTPException(status_code=400, detail="No files provided")
+
+        processor = DocumentProcessor()
+        # Save files temporarily
+        temp_dir = Path("tmp-data/uploaded_files")
+        # Clean directory if it exists
+        if temp_dir.exists():
+            logger.info(f"Cleaning existing files from {temp_dir}")
+            shutil.rmtree(temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Uploading files to {temp_dir}")
+        for file in files:
+            file_path = temp_dir / file.filename
+            logger.info(f"Writing file: {file.filename}")
+            with open(file_path, "wb") as f:
+                f.write(await file.read())
+                
+        # Process documents
         try:
-            health_results = await check_all_services_health()
-            print_health_report(health_results)
-            
-            # Process databases
-            if "databases" in health_results:
-                response.databases = [
-                    DatabaseHealthInfo(**service) 
-                    for service in health_results["databases"]
-                ]
-            
-            # Process object_storage
-            if "object_storage" in health_results:
-                response.object_storage = [
-                    StorageHealthInfo(**service) 
-                    for service in health_results["object_storage"]
-                ]
-            
-            # Process nim services
-            if "nim" in health_results:
-                response.nim = [
-                    NIMServiceHealthInfo(**service) 
-                    for service in health_results["nim"]
-                ]
-                    
-        except Exception as e:
-            logger.error(f"Error during dependency health checks: {str(e)}")
-    else:
-        logger.info("Skipping dependency health checks as check_dependencies=False")
+            results = processor.process_documents(str(temp_dir))
+            if not results:
+                raise HTTPException(status_code=500, detail="Document processing completed but no results were returned")
+        except TimeoutError as e:
+            raise HTTPException(status_code=504, detail=str(e))
+        except AuthenticationError as e:
+            raise HTTPException(status_code=401, detail=str(e))
+        except DocumentProcessorError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        
+        # Clean up
+        shutil.rmtree(temp_dir)
+        return {"message": "Documents processed successfully"}
+    except Exception as e:
+        logger.error(f"Error during document processing: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-    return response
-
-
-def prepare_citations(
-        collection_name: str,
-        retrieved_documents: List[Document],
-        force_citations: bool = False, # True in-case of doc search api
-        enable_citations: bool = True
-    ) -> Citations:
-    """
-    Prepare citation information based on retrieved_documents
-    Arguments:
-        - collection_name: str - Milvus Collection Name
-        - retrieved_documents: List of retrieved langchain documents
-        - force_citations: This flag would give citations even if config enable_citations is unset
-    Returns:
-        - source_results: Citations
-    """
-    citations = list()
-
-    if force_citations or enable_citations:
-        for doc in retrieved_documents:
-
-            file_name = os.path.basename(doc.metadata.get("source").get("source_id"))
-
-            if doc.metadata.get("content_metadata").get("type") in ["text"]:
-                content = doc.page_content
-                document_type = doc.metadata.get("content_metadata").get("type")
-                source_metadata = SourceMetadata(description=doc.page_content)
-
-            elif doc.metadata.get("content_metadata").get("type") in ["image", "structured"]:
-                # Pull required metadata
-                page_number = doc.metadata.get("content_metadata").get("page_number")
-                location = doc.metadata.get("content_metadata").get("location")
-                if doc.metadata.get("content_metadata").get("type") == "image":
-                    document_type = doc.metadata.get("content_metadata").get("type")
-                else:
-                    document_type = doc.metadata.get("content_metadata").get("subtype")
-                try:
-                    if enable_citations:
-                        logger.info("Pulling content from minio for image/table/chart for citations ...")
-                        unique_thumbnail_id = get_unique_thumbnail_id(
-                            collection_name=collection_name,
-                            file_name=file_name,
-                            page_number=page_number,
-                            location=location
-                        )
-                        payload = MINIO_OPERATOR.get_payload(object_name=unique_thumbnail_id)
-                        content = payload.get("content", "")
-                        source_metadata = SourceMetadata(
-                            page_number=page_number,
-                            location=location,
-                            description=doc.page_content
-                        )
-                    else:
-                        content = ""
-                        source_metadata = SourceMetadata(
-                            description=doc.page_content
-                        )
-                except Exception as e:
-                    logger.error(f"Error pulling content from minio for image/table/chart for citations: {e}")
-                    content = ""
-                    source_metadata = SourceMetadata(
-                        description=doc.page_content
-                    )
-
-            if content and document_type in ["image", "text", "table", "chart"]:
-                # Prepare citations basemodel
-                source_result = SourceResult(
-                    content=content,
-                    document_type=document_type,
-                    document_name=file_name,
-                    score=doc.metadata.get("relevance_score", 0),
-                    metadata=source_metadata
-                )
-                citations.append(source_result)
-
-    return Citations(
-        total_results=len(citations),
-        results=citations
-    )
 
 @app.post(
     "/generate",
@@ -969,7 +852,7 @@ async def generate_answer(request: Request, prompt: Prompt) -> StreamingResponse
         logger.warning(f"Request cancelled during response generation. {str(e)}")
         return JSONResponse(content={"message": "Request was cancelled by the client."}, status_code=499)
 
-    except PineconeApiException as e:
+    except PineconeException as e:
         exception_msg = ("Error from Pinecone server. Please ensure you have ingested some documents. "
                          "Please check rag-server logs for more details.")
         chain_response = ChainResponse()
@@ -1106,3 +989,7 @@ async def shutdown_event():
             pass
     except Exception as e:
         logger.error(f"Error during cleanup: {str(e)}")
+
+@app.get("/")
+async def root():
+    return FileResponse("src/static/index.html")

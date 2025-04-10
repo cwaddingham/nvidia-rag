@@ -8,6 +8,64 @@ Use the following documentation to learn about the NVIDIA RAG Blueprint.
 - Docker and Docker Compose
 - NVIDIA GPU drivers (for GPU acceleration)
 - A Pinecone account (for production deployment)
+- NVIDIA API key for NIM services and NV-Ingest
+
+### Getting Required API Keys
+
+1. **NVIDIA API Key**:
+   - Visit the [NVIDIA AI Enterprise Portal](https://ngc.nvidia.com/setup/api-key)
+   - Log in or create an account
+   - Navigate to "Setup" > "API Key"
+   - Generate a new API key
+   - Set as `NVIDIA_API_KEY` in your `.env` file
+
+2. **Pinecone API Key** (for production):
+   - Create account at [Pinecone](https://www.pinecone.io/)
+   - Navigate to API Keys in your dashboard
+   - Create a new API key
+   - Set as `PINECONE_API_KEY` in your `.env` file
+
+## Environment Setup
+
+1. Copy the example environment file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Update the following variables in `.env`:
+
+   ```bash
+   # Required for NVIDIA services
+   NVIDIA_API_KEY=your-nvidia-api-key
+   
+   # Required for Pinecone cloud deployment
+   PINECONE_API_KEY=your-pinecone-api-key
+   PINECONE_CLOUD=aws  # Cloud provider (aws, gcp, azure)
+   PINECONE_REGION=us-east-1  # Region in your chosen cloud
+   
+   # Vector store configuration
+   PINECONE_INDEX_NAME=your-index-name    # Default: rag-index
+   PINECONE_DIMENSION=1024                # Must match embedding dimension
+   PINECONE_METRIC=cosine                 # Distance metric for vectors
+   
+   # Retrieval settings
+   APP_RETRIEVER_TOPK=4                   # Number of documents to retrieve
+   
+   # Local development (optional)
+   PINECONE_HOST=http://localhost:5080    # Only needed for local deployment
+   ```
+
+3. Authenticate with NVIDIA Container Registry:
+
+   ```bash
+   # Log in using your NVIDIA API key
+   docker login nvcr.io -u '$oauthtoken' -p $NVIDIA_API_KEY
+   ```
+
+4. For local development, only `NVIDIA_API_KEY` is required. Other variables will use defaults.
+
+5. For cloud deployment, ensure `PINECONE_API_KEY` and `PINECONE_REGION` are set correctly.
 
 - [Overview](#overview)
 - [Key Features](#key-features)
@@ -67,10 +125,14 @@ The following are the default components included in this blueprint:
   - Retriever Models
     - [NIM of nvidia/llama-3_2-nv-embedqa-1b-v2]( https://build.nvidia.com/nvidia/llama-3_2-nv-embedqa-1b-v2)
     - [NIM of nvidia/llama-3_2-nv-rerankqa-1b-v2](https://build.nvidia.com/nvidia/llama-3_2-nv-rerankqa-1b-v2)
-- Orchestrator server - Langchain based
-- Pinecone Vector Database - cloud-hosted vector database service
-- Text Splitter: [Recursive Character Text Splitter](https://python.langchain.com/v0.1/docs/modules/data_connection/document_transformers/recursive_text_splitter/)
-- Document parsers: [Unstructured.io](https://docs.unstructured.io)
+- NV-Ingest Client Library
+  - Document parsing and chunking
+  - Multi-modal support (text, tables, charts, images)
+  - Page-level extraction
+- Orchestrator server - NV-Ingest based
+- Pinecone Vector Database
+  - Cloud service for production deployment
+  - Local development server for testing
 - File Types: [File types supported](https://docs.unstructured.io/platform/supported-file-types) by unstructured.io. Accuracy is best optimized for files with extension `.pdf`, `.txt` and `.md`.
 
 We provide Docker Compose scripts that deploy the microservices on a single node.
@@ -87,13 +149,13 @@ We also provide a sample user interface named `rag-playground`.
 
 ![RAG Architecture Diagram](./docs/arch_diagram.png)
 
-The image represents the high level architecture and workflow. The core business logic is defined in the `rag_chain_with_multiturn()` method of `chains.py` file. Here's a step-by-step explanation of the workflow from end-user perspective:
+The image represents the high level architecture and workflow. The core business logic uses NVIDIA's NV-Ingest pipeline for document processing and retrieval. Here's a step-by-step explanation of the workflow from end-user perspective:
 
 1. **User Interaction via RAG Playground**:
-   - The user interacts with this blueprint by typing queries into the sample UI microservice named as **RAG Playground**. These queries are sent to the system through the `POST /generate` API exposed by the RAG server microservice. There are separate [notebooks](./notebooks/) available which showcase API usage as well.
+   - The user interacts with this blueprint by typing queries into the sample UI microservice named as **RAG Playground**. These queries are sent to the system through the `POST /generate` API exposed by the RAG server microservice.
 
 2. **Query Processing**:
-   - The query enters the **RAG Server**, which is based on LangChain. An optional **Query Rewriter** component may refine or decontextualize the query for better retrieval results at this stage. An optional NeMoGuardrails component can be enabled as well to help filter out queries at input of the pipeline.
+   - The query enters the **RAG Server**, which uses NVIDIA's NV-Ingest pipeline for document processing and retrieval.
 
 3. **Retrieval of Relevant Documents**:
    - The refined query is passed to the **Retriever** module. This component queries the **Pinecone Vector Database service**, which stores embeddings of unstructured data, generated using **NeMo Retriever Embedding microservice**. The retriever module identifies the top 20 most relevant chunks of information related to the query.
@@ -268,3 +330,160 @@ The application will automatically detect which environment it's running in and 
 - No configuration needed - runs out of the box
 - Default index name: "rag-index"
 - Local endpoint: <http://localhost:5080>
+
+#### Required Variables
+
+- `NVIDIA_API_KEY`: Your NVIDIA API key for NIM services
+
+#### Optional Variables
+
+- `PINECONE_API_KEY`: Your Pinecone API key (required for cloud deployment)
+- `PINECONE_ENVIRONMENT`: Your Pinecone environment (for cloud deployment)
+- `PINECONE_INDEX_NAME`: Name of your index
+- `NV_INGEST_HOST`: Host for Nemo Retriever Extract service
+
+## Document Processing Pipeline
+
+This blueprint uses NVIDIA's Nemo Retriever Extract (formerly NV-Ingest) for document processing:
+
+1. **Document Ingestion**:
+   - Supports multiple file formats including PDFs, Word docs, and PowerPoint
+   - Extracts text, tables, charts, and images
+   - Processes at page-level granularity
+
+2. **Vector Storage**:
+   - Uses Pinecone for vector storage and retrieval
+   - Supports both cloud and local deployment
+   - Automatic index creation and management
+
+3. **Retrieval**:
+   - Semantic search using NVIDIA's embedding models
+   - Reranking for improved accuracy
+   - Multi-modal context support
+
+## Troubleshooting
+
+### Pinecone Issues
+
+1. **Connection Errors**:
+
+   ```
+   PineconeConnectionError: Failed to connect to Pinecone
+   ```
+
+   - Check if PINECONE_API_KEY is set correctly
+   - Verify PINECONE_HOST for local deployment
+   - Ensure PINECONE_ENVIRONMENT is correct for cloud deployment
+
+2. **Index Creation Fails**:
+
+   ```
+   PineconeApiException: Index creation failed
+   ```
+
+   - Verify dimension matches your embedding model (default: 1536)
+   - Check if index name is unique
+   - Ensure you have permissions to create indexes
+
+3. **Query Issues**:
+
+   ```
+   PineconeApiException: Query failed
+   ```
+
+   - Verify vector dimensions match index configuration
+   - Check if index is populated with vectors
+   - Ensure top_k value is within limits
+
+### Nemo Retriever Extract Issues
+
+1. **Service Connection**:
+
+   ```
+   ConnectionError: Failed to connect to NV-Ingest service
+   ```
+
+   - Verify NV_INGEST_HOST is correct
+   - Check if service is running (`docker compose ps`)
+
+2. **Document Processing**:
+
+   ```
+   Error processing documents: Extraction failed
+   ```
+
+   - Check file format compatibility
+   - Verify file permissions
+   - Ensure sufficient system resources
+
+3. **Embedding Generation**:
+
+   ```
+   NVIDIAServiceError: Embedding generation failed
+   ```
+
+   - Verify NVIDIA_API_KEY is valid
+   - Check model availability
+   - Monitor GPU resource usage
+
+### Docker Issues
+
+1. **Container Startup**:
+
+   ```
+   Error starting userland proxy: listen tcp4 0.0.0.0:5080: bind: address already in use
+   ```
+
+   - Check for port conflicts (5080-5090, 7671, 8000)
+   - Stop any running containers using same ports
+   - Verify Docker service is running
+
+2. **Resource Issues**:
+
+   ```
+   Container exited with code 137
+   ```
+
+   - Increase Docker memory limits
+   - Monitor system resources
+   - Check container logs for OOM errors
+
+### Common Solutions
+
+1. **Reset Local Environment**:
+
+   ```bash
+   # Stop and remove containers
+   docker compose -f docker-compose.local.yaml down
+
+   # Remove volumes
+   docker volume prune -f
+
+   # Rebuild and restart
+   docker compose -f docker-compose.local.yaml up --build
+   ```
+
+2. **Check Service Health**:
+
+   ```bash
+   # Check Pinecone
+   curl http://localhost:5080/health
+
+   # Check NV-Ingest
+   curl http://localhost:7671/health
+
+   # Check RAG server
+   curl http://localhost:8000/health
+   ```
+
+3. **View Logs**:
+
+   ```bash
+   # All services
+   docker compose -f docker-compose.local.yaml logs -f
+
+   # Specific service
+   docker compose -f docker-compose.local.yaml logs -f rag-server
+   ```
+
+For additional help, check the [NVIDIA Developer Forums](https://forums.developer.nvidia.com/) or [Pinecone Documentation](https://docs.pinecone.io/).

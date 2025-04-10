@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NVIDIA RAG Server</title>
+    <style>
+        body {
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .links {
+            margin-top: 20px;
+        }
+        .links a {
+            display: inline-block;
+            margin: 10px;
+            padding: 10px 20px;
+            background: #76b900;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background: white;
+            margin: 15% auto;
+            padding: 20px;
+            width: 70%;
+            max-width: 500px;
+            border-radius: 8px;
+        }
+        #uploadStatus {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background: #e8f5e9; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+        .dropzone {
+            border: 2px dashed #76b900;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            margin: 10px 0;
+            background: #f8f9fa;
+            cursor: pointer;
+        }
+        .dropzone.dragover {
+            background: #e8f5e9;
+            border-color: #2e7d32;
+        }
+        .progress {
+            width: 100%;
+            height: 4px;
+            background: #e0e0e0;
+            margin-top: 10px;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #76b900;
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+        .file-list {
+            margin: 10px 0;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>NVIDIA RAG Server</h1>
+    <p>Welcome to the NVIDIA RAG Blueprint. This service demonstrates how to set up a RAG solution using NVIDIA NIM and GPU-accelerated components.</p>
+
+    <h2>Features</h2>
+    <ul>
+        <li>Document processing with NV-Ingest</li>
+        <li>Vector storage with Pinecone (local or cloud)</li>
+        <li>Question answering powered by NVIDIA NIM</li>
+    </ul>
+
+    <h2>Prerequisites</h2>
+    <ul>
+        <li>Python 3.12 or later</li>
+        <li>Docker and Docker Compose</li>
+        <li>NVIDIA API key for NIM services</li>
+        <li>Pinecone account (for production deployment)</li>
+    </ul>
+
+    <h2>Quick Start</h2>
+    <ol>
+        <li>Configure your environment variables in <code>.env</code></li>
+        <li>Start the services with <code>docker compose -f docker-compose.local.yaml up</code></li>
+        <li>Upload documents using the API below</li>
+        <li>Start asking questions!</li>
+    </ol>
+
+    <h2>API Usage</h2>
+    <h3>1. Upload Documents</h3>
+    <pre><code>curl -X POST "http://localhost:8000/documents" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "files=@your-document.pdf"</code></pre>
+
+    <h3>2. Ask Questions</h3>
+    <pre><code>curl -X POST "http://localhost:8000/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "What is...?"}]}'</code></pre>
+
+    <div class="links">
+        <a href="/docs">API Documentation</a>
+        <a href="/redoc">API Reference</a>
+        <a href="https://github.com/NVIDIA-AI-Blueprints/rag">GitHub Repository</a>
+        <a href="#" onclick="showUploadModal()">Upload Documents</a>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="modal">
+        <div class="modal-content">
+            <h2>Upload Documents</h2>
+            <p>Drop files here or click to select:</p>
+            <form id="uploadForm">
+                <div class="dropzone" id="dropzone">
+                    <input type="file" id="files" name="files" multiple 
+                        accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.svg,.tiff" style="display: none;">
+                    <div>Drag & drop files or click to browse</div>
+                    <div style="font-size: 0.8em; color: #666;">
+                        Supported formats: PDF, DOCX, PPTX, TXT, PNG, JPEG, SVG, TIFF
+                    </div>
+                </div>
+                <div class="file-list" id="fileList"></div>
+                <div class="progress">
+                    <div class="progress-bar"></div>
+                </div>
+                <button type="submit">Upload</button>
+                <button type="button" onclick="hideUploadModal()">Cancel</button>
+            </form>
+            <div id="uploadStatus"></div>
+        </div>
+    </div>
+
+    <script>
+        const ALLOWED_TYPES = [
+            'application/pdf',
+            'text/plain',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'image/png',
+            'image/jpeg',
+            'image/svg+xml',
+            'image/tiff'
+        ];
+
+        function validateFiles(files) {
+            return Array.from(files).every(file => 
+                ALLOWED_TYPES.includes(file.type) || 
+                file.name.match(/\.(pdf|txt|docx|pptx|png|jpg|jpeg|svg|tiff)$/i)
+            );
+        }
+
+        function updateFileList(files) {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = Array.from(files)
+                .map(file => `<div>${file.name} (${(file.size/1024/1024).toFixed(2)} MB)</div>`)
+                .join('');
+        }
+
+        function showUploadModal() {
+            document.getElementById('uploadModal').style.display = 'block';
+        }
+
+        function hideUploadModal() {
+            document.getElementById('uploadModal').style.display = 'none';
+            document.getElementById('uploadStatus').innerHTML = '';
+            document.getElementById('fileList').innerHTML = '';
+            document.querySelector('.progress-bar').style.width = '0%';
+            document.querySelector('.progress').style.display = 'none';
+        }
+
+        // Drag and drop handlers
+        const dropzone = document.getElementById('dropzone');
+        dropzone.onclick = () => document.getElementById('files').click();
+
+        dropzone.ondragover = (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        };
+
+        dropzone.ondragleave = () => dropzone.classList.remove('dragover');
+
+        dropzone.ondrop = (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (!validateFiles(files)) {
+                alert('Some files are not supported. Please only upload PDF, DOCX, TXT, PNG, or JPEG files.');
+                return;
+            }
+            document.getElementById('files').files = files;
+            updateFileList(files);
+        };
+
+        document.getElementById('files').onchange = (e) => {
+            if (!validateFiles(e.target.files)) {
+                alert('Some files are not supported. Please only upload PDF, DOCX, TXT, PNG, or JPEG files.');
+                e.target.value = '';
+                return;
+            }
+            updateFileList(e.target.files);
+        };
+
+        document.getElementById('uploadForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const status = document.getElementById('uploadStatus');
+            const progress = document.querySelector('.progress');
+            const progressBar = document.querySelector('.progress-bar');
+            const formData = new FormData();
+            
+            const files = document.getElementById('files').files;
+            if (files.length === 0) {
+                status.innerHTML = 'Please select files to upload';
+                status.className = 'error';
+                return;
+            }
+
+            for (let file of files) {
+                formData.append('files', file);
+            }
+
+            try {
+                status.innerHTML = 'Uploading...';
+                progress.style.display = 'block';
+                
+                const response = await fetch('/documents', {
+                    method: 'POST',
+                    body: formData,
+                    onUploadProgress: (e) => {
+                        const percent = (e.loaded / e.total) * 100;
+                        progressBar.style.width = percent + '%';
+                    }
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    status.innerHTML = 'Upload successful!';
+                    status.className = 'success';
+                    setTimeout(hideUploadModal, 2000);
+                } else {
+                    throw new Error(result.detail || 'Upload failed');
+                }
+            } catch (error) {
+                status.innerHTML = `Error: ${error.message}`;
+                status.className = 'error';
+            }
+        };
+    </script>
+</body>
+</html> 

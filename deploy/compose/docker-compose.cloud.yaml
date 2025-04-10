@@ -1,0 +1,7 @@
+include:
+  - base.yaml
+  - vectordb-cloud.yaml
+
+services:
+  pinecone-local:
+    profiles: ["never"]  # This ensures local is never started in cloud mode

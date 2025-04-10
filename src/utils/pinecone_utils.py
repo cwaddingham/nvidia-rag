@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import Optional
-from pinecone import Pinecone, ApiException as PineconeApiException
+from pinecone import Pinecone, PineconeException
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,23 @@ def get_pinecone_client() -> Pinecone:
         if is_local:
             client = Pinecone(
                 api_key="pclocal",
-                host=os.getenv("PINECONE_HOST", "http://localhost:5080")
+                host=os.getenv("PINECONE_HOST", "http://localhost:5081")
             )
         else:
             api_key = os.getenv("PINECONE_API_KEY")
             if not api_key:
                 raise PineconeConnectionError("PINECONE_API_KEY environment variable not set")
-            client = Pinecone(api_key=api_key)
+            client = Pinecone(
+                api_key=api_key,
+                cloud=os.getenv("PINECONE_CLOUD", "aws"),
+                region=os.getenv("PINECONE_REGION", "us-east-1")
+            )
             
         # Test connection
         client.list_indexes()
         return client
         
-    except PineconeApiException as e:
+    except PineconeException as e:
         logger.error(f"Pinecone API error: {str(e)}")
         raise PineconeConnectionError(f"Failed to connect to Pinecone: {str(e)}")
     except Exception as e:
@@ -43,7 +47,7 @@ def get_index(pc: Optional[Pinecone] = None):
             pc = get_pinecone_client()
         index_name = os.getenv("PINECONE_INDEX_NAME", "rag-index")
         return pc.Index(index_name)
-    except PineconeApiException as e:
+    except PineconeException as e:
         logger.error(f"Pinecone API error accessing index: {str(e)}")
         raise PineconeConnectionError(f"Failed to access Pinecone index: {str(e)}")
     except Exception as e:

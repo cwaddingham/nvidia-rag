@@ -89,4 +89,24 @@ You can specify the model for NVIDIA NIM containers to use in the [nims.yaml](..
 
    - Browse the NGC catalog at <https://catalog.ngc.nvidia.com/containers>.
 
-2. Follow the steps specified [here](quickstart.md#start-using-on-prem-models) to relaunch the containers with the updated models. Make sure to specify the correct model names using appropriate environment variables.
+1. Follow the steps specified [here](quickstart.md#start-the-containers-using-on-prem-models) to relaunch the containers with the updated models.
+
+
+
+# Changing Models
+
+This guide explains how to customize the models used in the RAG pipeline.
+
+## Vector Store Configuration
+
+The default setup uses Pinecone as the vector store. You can configure:
+
+- `PINECONE_API_KEY`: Your Pinecone API key (required for cloud)
+- `PINECONE_ENVIRONMENT`: Your environment (e.g., "gcp-starter")
+- `PINECONE_INDEX_NAME`: Name of your index (default: rag-index)
+- `PINECONE_DIMENSION`: Vector dimension (default: 1536)
+- `PINECONE_METRIC`: Distance metric (default: "cosine")
+
+## Embedding Model
+
+The default embedding model is nvidia/llama-3.2-nv-embedqa-1b-v2. To use a different model:

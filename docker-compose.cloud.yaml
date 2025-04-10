@@ -1,7 +1,0 @@
-services:
-  rag-server:
-    environment:
-      - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
-      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
-    # ... other rag-server configuration ... 

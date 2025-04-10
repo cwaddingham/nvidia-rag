@@ -1,0 +1,16 @@
+services:
+  # Cloud Pinecone configuration (no container needed)
+  pinecone-cloud:
+    image: alpine:latest  # Dummy image
+    command: echo "Using Pinecone Cloud"
+    environment:
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_CLOUD=${PINECONE_CLOUD:-aws}
+      - PINECONE_REGION=${PINECONE_REGION:-us-west-2}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
+      - PINECONE_DIMENSION=${PINECONE_DIMENSION:-1536}
+      - PINECONE_METRIC=${PINECONE_METRIC:-cosine}
+
+networks:
+  default:
+    name: nvidia-rag 

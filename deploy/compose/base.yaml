@@ -1,0 +1,4 @@
+include:
+  - docker-compose-ingestor-server.yaml
+  - docker-compose-rag-server.yaml
+  - docker-compose-nemo-guardrails.yaml
