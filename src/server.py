@@ -43,8 +43,10 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from fastapi.staticfiles import StaticFiles
 
 from pinecone import Pinecone, ServerlessSpec, PineconeException
-from .document_processor import DocumentProcessor
-from .utils.pinecone_utils import get_pinecone_client, get_index
+from document_processor import DocumentProcessor
+from utils.pinecone_utils import get_pinecone_client, get_index
+from tracing import instrument
+from configuration import get_config
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
@@ -94,7 +96,6 @@ UNSTRUCTURED_RAG = UnstructuredRAG()
 settings = get_config()
 metrics = None
 if settings.tracing.enabled:
-    from .tracing import instrument
     metrics = instrument(app, settings)
 
 class Message(BaseModel):
@@ -647,19 +648,14 @@ def error_response_generator(exception_msg: str):
         }
     },
 )
-async def health_check(check_dependencies: bool = False):
-    """
-    Perform a Health Check
-    
-    Args:
-        check_dependencies: If True, check health of all dependent services. 
-                           If False (default), only report that the API service is up.
-
-    Returns 200 when service is up and includes health status of all dependent services when requested.
-    """
-
-    response_message = "Service is up."
-    return HealthResponse(message=response_message)
+async def health_check():
+    """Health check endpoint."""
+    try:
+        # Add basic service checks here
+        return {"status": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Service unhealthy")
 
 
 @app.post("/documents", tags=["Ingestion APIs"])

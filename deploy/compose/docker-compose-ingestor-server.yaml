@@ -16,23 +16,12 @@ services:
       EXAMPLE_PATH: 'src/ingestor_server'
 
       ##===Vector DB specific configurations===
-      # URL on which vectorstore is hosted
-      APP_VECTORSTORE_URL: "http://milvus:19530"
-      # Type of vectordb used to store embedding supported type milvus
-      APP_VECTORSTORE_NAME: "milvus"
-      # Type of vectordb search to be used
-      APP_VECTORSTORE_SEARCHTYPE: ${APP_VECTORSTORE_SEARCHTYPE:-"dense"} # Can be dense or hybrid
-      # Boolean to enable GPU index for milvus vectorstore specific to nvingest
-      APP_VECTORSTORE_ENABLEGPUINDEX: ${APP_VECTORSTORE_ENABLEGPUINDEX:-True}
-      # Boolean to control GPU search for milvus vectorstore specific to nvingest
-      APP_VECTORSTORE_ENABLEGPUSEARCH: ${APP_VECTORSTORE_ENABLEGPUSEARCH:-True}
+      # Pinecone configuration 
+      PINECONE_API_KEY: ${PINECONE_API_KEY:?"PINECONE_API_KEY is required"}
+      PINECONE_INDEX_NAME: ${COLLECTION_NAME:-multimodal_data}
+
       # vectorstore collection name to store embeddings
       COLLECTION_NAME: ${COLLECTION_NAME:-multimodal_data}
-
-      ##===MINIO specific configurations===
-      MINIO_ENDPOINT: "minio:9010"
-      MINIO_ACCESSKEY: "minioadmin"
-      MINIO_SECRETKEY: "minioadmin"
 
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:?"NVIDIA_API_KEY is required"}
 
@@ -70,11 +59,31 @@ services:
       # Log level for server, supported level NOTSET, DEBUG, INFO, WARN, ERROR, CRITICAL
       LOGLEVEL: ${LOGLEVEL:-INFO}
 
+      # Minio configuration for binary content storage
+      MINIO_ENDPOINT: "minio:9010"
+      MINIO_ACCESSKEY: "minioadmin"
+      MINIO_SECRETKEY: "minioadmin"
+      MINIO_BUCKET: "nv-ingest"
+
     ports:
       - "8082:8082"
     expose:
       - "8082"
     shm_size: 5gb
+    deploy:
+      resources:
+        limits:
+          cpus: '4'  # Limit to 4 CPU cores
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: "redis/redis-stack"
@@ -83,7 +92,7 @@ services:
 
   nv-ingest-ms-runtime:
     image: nvcr.io/nvidia/nemo-microservices/nv-ingest:25.3.0
-    cpuset: "0-15"
+    platform: linux/amd64  # Force amd64 platform
     volumes:
       - ${DATASET_ROOT:-./data}:/workspace/data
     ports:
@@ -98,7 +107,7 @@ services:
       - AUDIO_GRPC_ENDPOINT=audio:50051
       - AUDIO_INFER_PROTOCOL=grpc
       - CUDA_VISIBLE_DEVICES=0
-      - MAX_INGEST_PROCESS_WORKERS=${MAX_INGEST_PROCESS_WORKERS:-16}
+      - MAX_INGEST_PROCESS_WORKERS=${MAX_INGEST_PROCESS_WORKERS:-4}
       - EMBEDDING_NIM_MODEL_NAME=${EMBEDDING_NIM_MODEL_NAME:-${APP_EMBEDDINGS_MODELNAME:-nvidia/llama-3.2-nv-embedqa-1b-v2}}
       # Incase of self-hosted embedding model, use the endpoint url as - https://integrate.api.nvidia.com/v1
       - EMBEDDING_NIM_ENDPOINT=${EMBEDDING_NIM_ENDPOINT:-${APP_EMBEDDINGS_SERVERURL-http://nemoretriever-embedding-ms:8000/v1}}
@@ -157,6 +166,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          cpus: '4'  # Limit to 4 CPU cores
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
 
 networks:
   default:

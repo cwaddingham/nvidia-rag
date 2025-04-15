@@ -29,17 +29,13 @@ from overrides import overrides
 from datetime import datetime
 from pymilvus import utility, connections
 
-from langchain_core.documents import Document
-
 from .base import BaseIngestor
 from src.utils import (
     get_config,
     get_vectorstore,
     get_embedding_model,
-    get_docs_vectorstore_langchain,
     get_nv_ingest_client,
     get_nv_ingest_ingestor,
-    del_docs_vectorstore_langchain,
     get_minio_operator,
     get_unique_thumbnail_id_collection_prefix,
     get_unique_thumbnail_id_file_name_prefix,
@@ -197,90 +193,75 @@ class NVIngestIngestor(BaseIngestor):
 
     @staticmethod
     def get_documents(collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
-        """
-        Retrieves filenames stored in the vector store.
-        It's called when the GET endpoint of `/documents` API is invoked.
-
-        Returns:
-            Dict[str, Any]: Response containing a list of documents with metadata.
-        """
         try:
             vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
             if not vs:
-                raise ValueError(f"Failed to get vectorstore instance for collection: {collection_name}. Please check if the collection exists in {vdb_endpoint}.")
+                raise ValueError(f"Failed to get vectorstore instance for collection: {collection_name}")
 
-            documents_list = get_docs_vectorstore_langchain(vs)
+            # Replace Langchain document listing with direct vector store query
+            collection = vs.collection
+            documents = collection.query(
+                expr="filename != ''",  # Query all documents with filenames
+                output_fields=["filename", "document_id", "timestamp", "size"],
+                limit=10000
+            )
 
-            # Generate response format
-            documents = [
+            # Format response
+            doc_list = [
                 {
-                    "document_id": "",  # TODO - Use actual document_id
-                    "document_name": os.path.basename(doc),  # Extract file name
-                    "timestamp": "",  # TODO - Use actual timestamp
-                    "size_bytes": 0  # TODO - Use actual size
+                    "document_id": doc.get("document_id", ""),
+                    "document_name": doc.get("filename", ""),
+                    "timestamp": doc.get("timestamp", ""),
+                    "size_bytes": doc.get("size", 0)
                 }
-                for doc in documents_list
+                for doc in documents
             ]
 
             return {
-                "documents": documents,
-                "total_documents": len(documents),
-                "message": "Document listing successfully completed.",
+                "documents": doc_list,
+                "total_documents": len(doc_list),
+                "message": "Document listing successfully completed."
             }
-
         except Exception as e:
-            logger.exception(f"Failed to retrieve documents due to error {e}.")
-            return {"documents": [], "total_documents": 0, "message": f"Document listing failed due to error {e}."}
+            logger.exception(f"Failed to retrieve documents: {e}")
+            return {"documents": [], "total_documents": 0, "message": f"Document listing failed: {e}"}
 
 
     @staticmethod
     def delete_documents(document_names: List[str], document_ids: List[str], collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
-        """Delete documents from the vector index.
-        It's called when the DELETE endpoint of `/documents` API is invoked.
-
-        Args:
-            document_names (List[str]): List of filenames to be deleted from vectorstore.
-            document_ids (List[str]): List of document IDs to be deleted from vectorstore.
-            collection_name (str): Name of the collection to delete documents from.
-            vdb_endpoint (str): Vector database endpoint.
-
-        Returns:
-            Dict[str, Any]: Response containing a list of deleted documents with metadata.
-        """
-
         try:
-            logger.info(f"Deleting documents {document_names} from collection {collection_name} at {vdb_endpoint}")
-
-            # Get vectorstore instance
             vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
             if not vs:
-                raise ValueError(f"Failed to get vectorstore instance for collection: {collection_name}. Please check if the collection exists in {vdb_endpoint}.")
+                raise ValueError(f"Failed to get vectorstore instance")
 
-            if not len(document_names):
-                raise ValueError("No document names provided for deletion. Please provide document names to delete.")
+            if not document_names and not document_ids:
+                raise ValueError("No document names or IDs provided for deletion")
 
-            # TODO: Delete based on document_ids if provided
-            if del_docs_vectorstore_langchain(vs, document_names):
-                # Generate response dictionary
-                documents = [
-                    {
-                        "document_id": "",  # TODO - Use actual document_id
-                        "document_name": doc,
-                        "size_bytes": 0 # TODO - Use actual size
-                    }
-                    for doc in document_names
-                ]
-                # Delete from Minio
-                for doc in document_names:
-                    filename_prefix = get_unique_thumbnail_id_file_name_prefix(collection_name, doc)
-                    delete_object_names = MINIO_OPERATOR.list_payloads(filename_prefix)
-                    MINIO_OPERATOR.delete_payloads(delete_object_names)
-                return {f"message": "Files deleted successfully", "total_documents": len(documents), "documents": documents}
+            # Build expression for deletion
+            expr = []
+            if document_names:
+                expr.append(f"filename in {document_names}")
+            if document_ids:
+                expr.append(f"document_id in {document_ids}")
+            
+            # Delete from vector store
+            collection = vs.collection
+            collection.delete(expr=" || ".join(expr))
+
+            # Delete from Minio
+            for doc in document_names:
+                filename_prefix = get_unique_thumbnail_id_file_name_prefix(collection_name, doc)
+                delete_object_names = MINIO_OPERATOR.list_payloads(filename_prefix)
+                MINIO_OPERATOR.delete_payloads(delete_object_names)
+
+            return {
+                "message": "Files deleted successfully",
+                "total_documents": len(document_names) + len(document_ids),
+                "documents": [{"document_name": doc} for doc in document_names]
+            }
 
         except Exception as e:
-            return {f"message": f"Failed to delete files due to error: {e}", "total_documents": 0, "documents": []}
-
-        return {f"message": "Failed to delete files due to error. Check logs for details.", "total_documents": 0, "documents": []}
+            return {"message": f"Failed to delete files: {e}", "total_documents": 0, "documents": []}
 
     @staticmethod
     def _prepare_metadata(

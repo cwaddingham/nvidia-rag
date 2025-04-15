@@ -16,7 +16,11 @@
 """Module to enable Observervability and Tracing instrumentation"""
 
 from typing import Any
-from opentelemetry import trace
+try:
+    from opentelemetry import trace
+    TRACING_AVAILABLE = True
+except ImportError:
+    TRACING_AVAILABLE = False
 from opentelemetry import metrics
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider, Span
@@ -48,6 +52,9 @@ def _fastapi_server_request_hook(span: Span, scope: dict[str, Any]):
 
 def instrument(app: FastAPI, settings):
     """Function to enable OTLP export and instrumentation for traces and metrics"""
+
+    if not TRACING_AVAILABLE:
+        return None
 
     otel_metrics = None
     if settings.tracing.enabled:

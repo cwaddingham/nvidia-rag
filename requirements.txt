@@ -6,3 +6,11 @@ pinecone==6.0.2
 python-dotenv==1.1.0
 python-multipart==0.0.20
 uvicorn==0.27.1
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-fastapi
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-milvus
+opentelemetry-instrumentation
+minio==7.2.0

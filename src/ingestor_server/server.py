@@ -35,7 +35,6 @@ from pydantic import constr
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from nv_ingest_client.util.file_processing.extract import EXTENSION_TO_DOCUMENT_TYPE
 
-from src.chains import UnstructuredRAG
 from .main import NVIngestIngestor
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
@@ -71,10 +70,6 @@ app.add_middleware(
 
 
 EXAMPLE_DIR = "./"
-
-# Support for UnstructuredRAG.ingest_docs()
-UNSTRUCTURED_RAG_CHAIN = UnstructuredRAG() # Support to be DEPRECATED in future
-ENABLE_NV_INGEST = True # Configurable flag to enable/disable nv-ingest
 
 # Initialize the NVIngestIngestor class
 NV_INGEST_INGESTOR = NVIngestIngestor()

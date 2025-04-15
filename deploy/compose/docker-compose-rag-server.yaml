@@ -9,12 +9,12 @@ services:
       context: ../../
       dockerfile: src/Dockerfile
     # start the server on port 8081 with 8 workers for improved latency on concurrent requests.
-    command: --port 8081 --host 0.0.0.0 --workers 8
+    command: ["python", "-m", "uvicorn", "src.server:app", "--port", "8081", "--host", "0.0.0.0", "--workers", "8"]
 
     # Common customizations to the pipeline can be controlled using env variables
     environment:
       # Path to example directory relative to root
-      EXAMPLE_PATH: 'src/'
+      EXAMPLE_PATH: 'src'
 
       ##===MINIO specific configurations which is used to store the multimodal base64 content===
       MINIO_ENDPOINT: "minio:9010"
@@ -36,8 +36,7 @@ services:
 
       ##===LLM Model specific configurations===
       APP_LLM_MODELNAME: ${APP_LLM_MODELNAME:-"meta/llama-3.1-70b-instruct"}
-      # url on which llm model is hosted. If "", Nvidia hosted API is used
-      APP_LLM_SERVERURL: ${APP_LLM_SERVERURL-"nim-llm:8000"}
+      APP_LLM_SERVERURL: ${APP_LLM_SERVERURL-"https://ai.api.nvidia.com/v1/"}
 
       ##===Query Rewriter Model specific configurations===
       APP_QUERYREWRITER_MODELNAME: ${APP_QUERYREWRITER_MODELNAME:-"meta/llama-3.1-8b-instruct"}
@@ -45,13 +44,11 @@ services:
       APP_QUERYREWRITER_SERVERURL: ${APP_QUERYREWRITER_SERVERURL-"nim-llm-llama-8b-ms:8000"}
 
       ##===Embedding Model specific configurations===
-      # url on which embedding model is hosted. If "", Nvidia hosted API is used
-      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL-"nemoretriever-embedding-ms:8000"}
-      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-nvidia/llama-3.2-nv-embedqa-1b-v2}
+      APP_EMBEDDINGS_SERVERURL: ${APP_EMBEDDINGS_SERVERURL-"https://ai.api.nvidia.com/v1/"}
+      APP_EMBEDDINGS_MODELNAME: ${APP_EMBEDDINGS_MODELNAME:-"nvidia/llama-3.2-nv-embedqa-1b-v2"}
 
       ##===Reranking Model specific configurations===
-      # url on which ranking model is hosted. If "", Nvidia hosted API is used
-      APP_RANKING_SERVERURL: ${APP_RANKING_SERVERURL-"nemoretriever-ranking-ms:8000"}
+      APP_RANKING_SERVERURL: ${APP_RANKING_SERVERURL-"https://ai.api.nvidia.com/v1/"}
       APP_RANKING_MODELNAME: ${APP_RANKING_MODELNAME:-"nvidia/llama-3.2-nv-rerankqa-1b-v2"}
       ENABLE_RERANKER: ${ENABLE_RERANKER:-True}
 
@@ -86,9 +83,9 @@ services:
       # Tracing
       APP_TRACING_ENABLED: "False"
       # HTTP endpoint
-      APP_TRACING_OTLPHTTPENDPOINT: http://otel-collector:4318/v1/traces
+      # APP_TRACING_OTLPHTTPENDPOINT: http://otel-collector:4318/v1/traces
       # GRPC endpoint
-      APP_TRACING_OTLPGRPCENDPOINT: grpc://otel-collector:4317
+      # APP_TRACING_OTLPGRPCENDPOINT: grpc://otel-collector:4317
 
       # Choose whether to enable source metadata in document content during generation
       ENABLE_SOURCE_METADATA: ${ENABLE_SOURCE_METADATA:-true}
@@ -114,6 +111,20 @@ services:
     expose:
       - "8081"
     shm_size: 5gb
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Sample UI container which interacts with APIs exposed by rag-server container
   rag-playground:
@@ -139,7 +150,16 @@ services:
     expose:
       - "3000"
     depends_on:
-      - rag-server
+      rag-server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
 
 networks:
   default:

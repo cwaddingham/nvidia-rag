@@ -25,7 +25,7 @@ ENV PINECONE_HOST="http://pinecone:5080"
 ENV PINECONE_INDEX_NAME="rag-index"
 ENV NV_INGEST_HOST="http://nv-ingest:7671"
 ENV NVIDIA_API_KEY=${NVIDIA_API_KEY}
-ENV PYTHONPATH="/app:${PYTHONPATH}"
+ENV PYTHONPATH=/app/src
 
 # Create directory for uploaded files
 RUN mkdir -p /tmp-data/uploaded_files

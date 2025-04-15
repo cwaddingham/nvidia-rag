@@ -48,10 +48,17 @@ RUN chmod 777 -R /tmp-data
 RUN chown 1000:1000 -R /tmp-data
 ENV HF_HOME=/tmp-data
 
+# Create and set workspace directory
+RUN mkdir -p /workspace
 WORKDIR /workspace
 
-COPY ./ /workspace
+# Set environment variables
+ENV PYTHONPATH=/workspace:/workspace/src
 
-WORKDIR /workspace/
+# Copy application code
+COPY ./ /workspace/
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 ENTRYPOINT ["uvicorn", "src.ingestor_server.server:app"]
