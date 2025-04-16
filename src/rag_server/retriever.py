@@ -1,8 +1,8 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 import os
 import logging
 from openai import OpenAI, OpenAIError
-from .utils.pinecone_utils import get_index, PineconeConnectionError
+from ..utils.pinecone_utils import get_index, PineconeConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -59,4 +59,17 @@ class NVIDIARetriever:
             return response.data[0].embedding
         except OpenAIError as e:
             logger.error(f"Failed to get embedding: {str(e)}")
-            raise NVIDIAServiceError(f"Embedding generation failed: {str(e)}") 
+            raise NVIDIAServiceError(f"Embedding generation failed: {str(e)}")
+
+class UnstructuredRAG:
+    """Handles unstructured data retrieval and processing"""
+    
+    def __init__(self):
+        logger.info("Initializing UnstructuredRAG")
+        # Add any initialization code here
+        pass
+
+    async def process_query(self, query: str, **kwargs) -> Dict[str, Any]:
+        """Process a query and return relevant results"""
+        # Add query processing logic here
+        return {"status": "success", "results": []} 

@@ -1,5 +1,5 @@
 from typing import List, Dict
-from .utils.pinecone_utils import get_index
+from .pinecone_utils import get_index
 
 class PineconeUploader:
     def __init__(self):

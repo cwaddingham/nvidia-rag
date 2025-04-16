@@ -24,10 +24,8 @@ from typing import (
     Any
 )
 import logging
-from uuid import uuid4
 from overrides import overrides
-from datetime import datetime
-from pymilvus import utility, connections
+from datetime import datetime, timezone
 
 from .base import BaseIngestor
 from src.utils import (
@@ -37,20 +35,28 @@ from src.utils import (
     get_nv_ingest_client,
     get_nv_ingest_ingestor,
     get_minio_operator,
-    get_unique_thumbnail_id_collection_prefix,
-    get_unique_thumbnail_id_file_name_prefix,
     get_unique_thumbnail_id,
-    create_collections,
-    get_collection,
-    delete_collections,
+    get_unique_thumbnail_id_file_name_prefix,
+    get_unique_thumbnail_id_collection_prefix,
     ENABLE_NV_INGEST_VDB_UPLOAD
 )
+
+from src.utils.pinecone_utils import (
+    get_pinecone_client,
+    create_index,
+    delete_index,
+    list_indexes,
+    add_documents,
+    get_index_stats
+)
+
+from .document import Document
 
 # Initialize global objects
 logger = logging.getLogger(__name__)
 
 SETTINGS = get_config()
-DOCUMENT_EMBEDDER = document_embedder = get_embedding_model(model=SETTINGS.embeddings.model_name, url=SETTINGS.embeddings.server_url)
+DOCUMENT_EMBEDDER = get_embedding_model(model=SETTINGS.embeddings.model_name)
 NV_INGEST_CLIENT_INSTANCE = get_nv_ingest_client()
 MINIO_OPERATOR = get_minio_operator()
 
@@ -81,21 +87,11 @@ class NVIngestIngestor(BaseIngestor):
                     filepaths, kwargs.get("collection_name"))
 
         try:
-
-            # Peform ingestion using nvingest
-
-            # Check if the provided collection_name exists in vector-DB
-            # Connect to Milvus to check for collection availability
-            from urllib.parse import urlparse
-            url = urlparse(kwargs.get("vdb_endpoint"))
-            connection_alias = f"milvus_{url.hostname}_{url.port}"
-            connections.connect(connection_alias, host=url.hostname, port=url.port)
-
-            try:
-                if not utility.has_collection(kwargs.get("collection_name"), using=connection_alias):
-                    raise ValueError(f"Collection {kwargs.get('collection_name')} does not exist in {kwargs.get('vdb_endpoint')}. Ensure a collection is created using POST /collections endpoint first.")
-            finally:
-                connections.disconnect(connection_alias)
+            pc = get_pinecone_client()
+            
+            # Check if index exists
+            if kwargs.get("collection_name") not in list_indexes(pc):
+                raise ValueError(f"Index {kwargs.get('collection_name')} does not exist in Pinecone. Create it first using POST /collections endpoint.")
 
             await self._nv_ingest_ingestion(
                 filepaths=filepaths,
@@ -105,7 +101,7 @@ class NVIngestIngestor(BaseIngestor):
             # Generate response dictionary
             uploaded_documents = [
                 {
-                    "document_id": str(uuid4()),  # Generate a document_id from filename
+                    "document_id": f"uri://{os.path.basename(filepath)}#0",  # Base document ID, chunk IDs will be #1, #2, etc
                     "document_name": os.path.basename(filepath),
                     "size_bytes": os.path.getsize(filepath)
                 }
@@ -113,7 +109,7 @@ class NVIngestIngestor(BaseIngestor):
             ]
 
              # Get current timestamp in ISO format
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
             # TODO: Store document_id, timestamp and document size as metadata
 
             response_data = {
@@ -133,53 +129,78 @@ class NVIngestIngestor(BaseIngestor):
 
     @staticmethod
     def create_collections(
-        collection_names: List[str], vdb_endpoint: str, embedding_dimension: int, collection_type: str
+        collection_names: List[str], embedding_dimension: int
     ) -> str:
-        """
-        Main function called by ingestor server to create new collections in vector-DB
-        """
-        logger.info(f"Creating collections {collection_names} at {vdb_endpoint}")
-        return create_collections(collection_names, vdb_endpoint, embedding_dimension, collection_type)
+        """Creates new indexes in Pinecone if they don't exist"""
+        try:
+            pc = get_pinecone_client()
+            for name in collection_names:
+                if name not in list_indexes(pc):
+                    create_index(
+                        pc,
+                        name,
+                        dimension=embedding_dimension,
+                        metric=os.getenv("PINECONE_METRIC", "cosine")
+                    )
+            return {"message": f"Successfully created indexes: {collection_names}"}
+        except Exception as e:
+            raise Exception(f"Failed to create Pinecone index: {str(e)}")
 
 
     @staticmethod
     def delete_collections(
         vdb_endpoint: str, collection_names: List[str],
     ) -> Dict[str, Any]:
-        """
-        Main function called by ingestor server to delete collections in vector-DB
-        """
-        logger.info(f"Deleting collections {collection_names} at {vdb_endpoint}")
-        response = delete_collections(collection_names, vdb_endpoint)
-        # Delete from Minio
-        for collection in collection_names:
-            collection_prefix = get_unique_thumbnail_id_collection_prefix(collection)
-            delete_object_names = MINIO_OPERATOR.list_payloads(collection_prefix)
-            MINIO_OPERATOR.delete_payloads(delete_object_names)
-        return response
+        """Deletes indexes from Pinecone"""
+        try:
+            pc = get_pinecone_client()
+            
+            for name in collection_names:
+                if name in list_indexes(pc):
+                    delete_index(pc, name)
+                
+            return {"message": f"Successfully deleted indexes: {collection_names}"}
+        except Exception as e:
+            raise Exception(f"Failed to delete Pinecone index: {str(e)}")
 
 
     @staticmethod
     def get_collections(vdb_endpoint: str) -> Dict[str, Any]:
         """
-        Main function called by ingestor server to get all collections in vector-DB.
+        Get index statistics from Pinecone.
 
         Args:
-            vdb_endpoint (str): The endpoint of the vector database.
+            vdb_endpoint (str): Not used for Pinecone but kept for interface compatibility
 
         Returns:
-            Dict[str, Any]: A dictionary containing the collection list, message, and total count.
+            Dict[str, Any]: A dictionary containing index statistics and namespace information
         """
         try:
-            logger.info(f"Getting collection list from {vdb_endpoint}")
-
-            # Fetch collections from vector store
-            collection_info = get_collection(vdb_endpoint)
-
+            pc = get_pinecone_client()
+            index_name = os.getenv("PINECONE_INDEX_NAME", "rag-index")
+            
+            if index_name not in list_indexes(pc):
+                return {
+                    "message": f"Index {index_name} does not exist",
+                    "collections": [],
+                    "total_collections": 0
+                }
+            
+            stats = get_index_stats(pc, index_name)
+            
             return {
                 "message": "Collections listed successfully.",
-                "collections": collection_info,
-                "total_collections": len(collection_info)
+                "collections": [
+                    {
+                        "name": index_name,
+                        "vector_count": stats["total_vector_count"],
+                        "dimension": stats["dimension"],
+                        "namespaces": stats["namespaces"],
+                        "index_fullness": stats["index_fullness"],
+                        "metric": stats["metric"]
+                    }
+                ],
+                "total_collections": len(stats["namespaces"])
             }
 
         except Exception as e:
@@ -192,30 +213,34 @@ class NVIngestIngestor(BaseIngestor):
 
 
     @staticmethod
-    def get_documents(collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
+    def get_documents(collection_name: str) -> Dict[str, Any]:
+        """Lists all documents in the Pinecone index"""
         try:
-            vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
-            if not vs:
-                raise ValueError(f"Failed to get vectorstore instance for collection: {collection_name}")
-
-            # Replace Langchain document listing with direct vector store query
-            collection = vs.collection
-            documents = collection.query(
-                expr="filename != ''",  # Query all documents with filenames
-                output_fields=["filename", "document_id", "timestamp", "size"],
-                limit=10000
+            pc = get_pinecone_client()
+            index = pc.Index(collection_name)
+            
+            # Use Pinecone's list mechanism to get all vectors
+            response = index.list(
+                limit=10000,  # Adjust based on expected document count
+                include_metadata=True
             )
-
+            
             # Format response
-            doc_list = [
-                {
-                    "document_id": doc.get("document_id", ""),
-                    "document_name": doc.get("filename", ""),
-                    "timestamp": doc.get("timestamp", ""),
-                    "size_bytes": doc.get("size", 0)
-                }
-                for doc in documents
-            ]
+            doc_list = []
+            seen_docs = set()  # Track unique document IDs
+            
+            for vector in response.vectors:
+                doc_id = vector.metadata.get("document_id", "")
+                base_doc_id = doc_id.split("#")[0]  # Get base document ID without chunk number
+                
+                if base_doc_id not in seen_docs:
+                    seen_docs.add(base_doc_id)
+                    doc_list.append({
+                        "document_id": base_doc_id,
+                        "document_name": vector.metadata.get("filename", ""),
+                        "timestamp": vector.metadata.get("timestamp", ""),
+                        "size_bytes": vector.metadata.get("size", 0)
+                    })
 
             return {
                 "documents": doc_list,
@@ -224,29 +249,35 @@ class NVIngestIngestor(BaseIngestor):
             }
         except Exception as e:
             logger.exception(f"Failed to retrieve documents: {e}")
-            return {"documents": [], "total_documents": 0, "message": f"Document listing failed: {e}"}
+            return {
+                "documents": [], 
+                "total_documents": 0, 
+                "message": f"Document listing failed: {e}"
+            }
 
 
     @staticmethod
     def delete_documents(document_names: List[str], document_ids: List[str], collection_name: str, vdb_endpoint: str) -> Dict[str, Any]:
+        """Delete documents from Pinecone and Minio"""
         try:
-            vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
-            if not vs:
-                raise ValueError(f"Failed to get vectorstore instance")
-
             if not document_names and not document_ids:
                 raise ValueError("No document names or IDs provided for deletion")
 
-            # Build expression for deletion
-            expr = []
+            pc = get_pinecone_client()
+            index = pc.Index(collection_name)
+
+            # Build filter for deletion
+            filter_conditions = []
             if document_names:
-                expr.append(f"filename in {document_names}")
+                filter_conditions.append({"filename": {"$in": document_names}})
             if document_ids:
-                expr.append(f"document_id in {document_ids}")
+                filter_conditions.append({"document_id": {"$in": document_ids}})
             
-            # Delete from vector store
-            collection = vs.collection
-            collection.delete(expr=" || ".join(expr))
+            # Combine conditions with OR
+            delete_filter = {"$or": filter_conditions} if len(filter_conditions) > 1 else filter_conditions[0]
+            
+            # Delete from Pinecone
+            index.delete(filter=delete_filter)
 
             # Delete from Minio
             for doc in document_names:
@@ -261,7 +292,12 @@ class NVIngestIngestor(BaseIngestor):
             }
 
         except Exception as e:
-            return {"message": f"Failed to delete files: {e}", "total_documents": 0, "documents": []}
+            logger.error(f"Failed to delete documents: {e}")
+            return {
+                "message": f"Failed to delete files: {e}",
+                "total_documents": 0,
+                "documents": []
+            }
 
     @staticmethod
     def _prepare_metadata(
@@ -302,55 +338,31 @@ class NVIngestIngestor(BaseIngestor):
         }
         return metadata
 
-    def _prepare_langchain_documents(
-        self,
-        results: List[List[Dict[str, Union[str, dict]]]]
-    ) -> List[Document]:
-        """
-        Only used if ENABLE_NV_INGEST_VDB_UPLOAD=False
-        Prepare langchain documents based on the results obtained using nv-ingest
-
-        Arguments:
-            - results: List[List[Dict[str, Union[str, dict]]]] - Results obtained from nv-ingest
-
-        Returns
-            - List[Document] - List of langchain documents
-        """
-        documents = list()
+    def _prepare_documents(self, results: List[List[Dict[str, Union[str, dict]]]]) -> List[Document]:
+        """Prepare documents from nv-ingest results"""
+        documents = []
         for result in results:
-            for result_element in result:
-                # Prepare metadata
-                metadata = self._prepare_metadata(result_element=result_element)
-                # Extract documents page_content and prepare docs
-                page_content = None
-                # For textual data
+            for idx, result_element in enumerate(result, 1):  # Start chunk numbering at 1
                 if result_element.get("document_type") == "text":
-                    page_content = result_element.get("metadata")\
-                                                 .get("content")
-
-                # For both tables and charts
-                elif result_element.get("document_type") == "structured":
-                    structured_page_content = result_element.get("metadata")\
-                                                 .get("table_metadata")\
-                                                 .get("table_content")
-                    subtype = result_element.get("metadata").get("content_metadata").get("subtype")
-                    # Check for tables
-                    if subtype == "table" and self._config.nv_ingest.extract_tables:
-                        page_content = structured_page_content
-                    # Check for charts
-                    elif subtype == "chart" and self._config.nv_ingest.extract_charts:
-                        page_content = structured_page_content
-
-                # For image captions
-                elif result_element.get("document_type") == "image" and self._config.nv_ingest.extract_images:
-                    page_content = result_element.get("metadata")\
-                                                 .get("image_metadata")\
-                                                 .get("caption")
-                # Add doc to list
-                if page_content:
+                    source_id = result_element.get("metadata", {}).get("source_metadata", {}).get("source_id", "")
+                    base_name = os.path.basename(source_id)
+                    
+                    # Create semantic document ID with chunk number
+                    doc_id = f"uri://{base_name}#{idx}"
+                    
+                    # Get page number if available
+                    page_number = result_element.get("metadata", {}).get("content_metadata", {}).get("page_number", 0)
+                    
                     documents.append(
                         Document(
-                            page_content=page_content, metadata=metadata
+                            content=result_element.get("content"),
+                            metadata={
+                                "document_id": doc_id,
+                                "filename": base_name,
+                                "chunk": idx,
+                                "page": page_number,
+                                "source": source_id
+                            }
                         )
                     )
         return documents
@@ -358,22 +370,24 @@ class NVIngestIngestor(BaseIngestor):
     def _add_documents_to_vectorstore(
         self,
         documents: List[Document],
-        collection_name: str,
-        vdb_endpoint: str
+        collection_name: str
     ) -> None:
         """
-        Only used if ENABLE_NV_INGEST_VDB_UPLOAD=False
-        Add langchain documents to vectorstore
-
+        Add documents to Pinecone index
+        
         Arguments:
-            - documents: List[Document] - List of langchain documents
-            - collection_name: str - VectorDB collection name
+            - documents: List[Document] - List of documents to add
+            - collection_name: str - Pinecone index name
+            - vdb_endpoint: str - Not used for Pinecone but kept for interface compatibility
         """
-        vs = get_vectorstore(DOCUMENT_EMBEDDER, collection_name, vdb_endpoint)
-        for i in range(0, len(documents), self._vdb_upload_bulk_size):
-            sub_documents = documents[i:i+self._vdb_upload_bulk_size]
-            # Add documents to vectorstore
-            vs.add_documents(sub_documents)
+        pc = get_pinecone_client()
+        add_documents(
+            pc=pc,
+            index_name=collection_name,
+            documents=documents,
+            embedder=DOCUMENT_EMBEDDER,
+            batch_size=self._vdb_upload_bulk_size
+        )
 
     @staticmethod
     def _put_content_to_minio(
@@ -448,7 +462,7 @@ class NVIngestIngestor(BaseIngestor):
             logger.debug("Performing embedding and vector DB upload")
 
             # Prepare the documents for nv-ingest results
-            documents = self._prepare_langchain_documents(results)
+            documents = self._prepare_documents(results)
 
             # Add all documents to VectorStore
             self._add_documents_to_vectorstore(

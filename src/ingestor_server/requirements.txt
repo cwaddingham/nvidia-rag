@@ -9,4 +9,5 @@ pydantic==2.9.2
 PyYAML==6.0.2
 tqdm==4.67.1
 overrides==7.7.0
-pydantic==2.9.2
+torch==2.2.0
+transformers==4.37.2

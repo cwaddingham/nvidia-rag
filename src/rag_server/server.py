@@ -43,10 +43,12 @@ from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from fastapi.staticfiles import StaticFiles
 
 from pinecone import Pinecone, ServerlessSpec, PineconeException
-from document_processor import DocumentProcessor
-from utils.pinecone_utils import get_pinecone_client, get_index
-from tracing import instrument
-from configuration import get_config
+from src.document_processor import DocumentProcessor
+from src.utils.pinecone_utils import get_pinecone_client, get_index
+from src.rag_server.tracing import instrument
+from src.configuration import get_config
+from src.minio_operator import get_minio_operator
+from src.rag_server.retriever import UnstructuredRAG  # Add this import
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)

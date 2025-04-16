@@ -32,9 +32,8 @@ from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExp
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.processor.baggage import BaggageSpanProcessor, ALLOW_ALL_BAGGAGE_KEYS
-from .observability.langchain_instrumentor import LangchainInstrumentor
-from .observability.otel_metrics import OtelMetrics
-from opentelemetry.instrumentation.milvus import MilvusInstrumentor
+from ..observability.langchain_instrumentor import LangchainInstrumentor
+from ..observability.otel_metrics import OtelMetrics
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from fastapi import FastAPI
 import logging
@@ -99,7 +98,6 @@ def instrument(app: FastAPI, settings):
         )
         trace.get_tracer_provider().add_span_processor(span_processor)
         LangchainInstrumentor().instrument(tracer_provider=trace.get_tracer_provider(), metrics=otel_metrics)
-        MilvusInstrumentor().instrument(tracer_provider=trace.get_tracer_provider())
         FastAPIInstrumentor().instrument_app(
             app,
             tracer_provider=trace.get_tracer_provider(),

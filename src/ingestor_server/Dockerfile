@@ -8,7 +8,15 @@ ENV DEBIAN_FRONTEND noninteractive
 
 # Install required ubuntu packages for setting up python 3.10
 RUN apt update && \
-    apt install -y curl software-properties-common libgl1 libglib2.0-0 libmagic1 file && \
+    apt install -y \
+    g++ \
+    build-essential \
+    curl \
+    software-properties-common \
+    libgl1 \
+    libglib2.0-0 \
+    libmagic1 \
+    file && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt update && apt install -y python3.10 && \
     apt-get clean
@@ -57,8 +65,5 @@ ENV PYTHONPATH=/workspace:/workspace/src
 
 # Copy application code
 COPY ./ /workspace/
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
 ENTRYPOINT ["uvicorn", "src.ingestor_server.server:app"]

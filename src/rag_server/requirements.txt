@@ -7,10 +7,12 @@ nv-ingest-client==25.3.0
 opentelemetry-api
 opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-prometheus
 opentelemetry-instrumentation
 opentelemetry-instrumentation-fastapi
-opentelemetry-exporter-prometheus
+opentelemetry-processor-baggage
 opentelemetry-sdk
+opentelemetry-semantic-conventions-ai
 pinecone-plugin-interface==0.0.7
 pinecone==6.0.2
 pydantic==2.10.6

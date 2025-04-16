@@ -27,21 +27,30 @@ logger = logging.getLogger(__name__)
 class MinioOperator:
     """Minio operator Class to store metadata using Minio-client"""
 
-    def __init__(
-        self,
-        endpoint: str,
-        access_key: str,
-        secret_key: str,
-        default_bucket_name: str = "default-bucket"
-    ):
-        self.client = Minio(
-            endpoint,
-            access_key=access_key,
-            secret_key=secret_key,
-            secure=False
-        )
-        self.default_bucket_name = default_bucket_name
-        self._make_bucket(bucket_name=self.default_bucket_name)
+    def __init__(self, endpoint: str, access_key: str, secret_key: str):
+        """Initialize MinIO operator with validation"""
+        if not endpoint or not isinstance(endpoint, str):
+            raise ValueError("MinIO endpoint must be a non-empty string")
+        if not access_key or not isinstance(access_key, str):
+            raise ValueError("MinIO access key must be a non-empty string")
+        if not secret_key or not isinstance(secret_key, str):
+            raise ValueError("MinIO secret key must be a non-empty string")
+
+        self.default_bucket_name = os.getenv("MINIO_BUCKET_NAME", "citations")  # Add default bucket
+
+        try:
+            self.client = Minio(
+                endpoint=endpoint,
+                access_key=access_key,
+                secret_key=secret_key,
+                secure=False  # Set to True if using HTTPS
+            )
+            # Create default bucket if it doesn't exist
+            self._make_bucket(self.default_bucket_name)
+            logger.info("Successfully initialized MinIO client")
+        except Exception as e:
+            logger.error(f"Failed to initialize MinIO client: {e}")
+            raise
 
     def _make_bucket(self, bucket_name: str):
         """Create new bucket if doesn't exists"""
@@ -100,3 +109,22 @@ class MinioOperator:
         """Delete payloads from S3 storage using minio client"""
         for object_name in object_names:
             self.client.remove_object(self.default_bucket_name, object_name)
+
+def get_minio_operator() -> MinioOperator:
+    """Create and return a MinioOperator instance with default configuration"""
+    try:
+        # Use the same defaults as in docker-compose
+        endpoint = os.getenv("MINIO_ENDPOINT", "minio:9010")
+        access_key = os.getenv("MINIO_ACCESSKEY", "minioadmin")
+        secret_key = os.getenv("MINIO_SECRETKEY", "minioadmin")
+        
+        logger.debug("Initializing MinIO operator with endpoint: %s", endpoint)
+        
+        return MinioOperator(
+            endpoint=endpoint,
+            access_key=access_key,
+            secret_key=secret_key
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize MinIO operator: {e}")
+        raise

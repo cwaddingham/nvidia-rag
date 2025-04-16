@@ -38,10 +38,15 @@ class VectorStoreConfig(ConfigWizard):
         default="",
         help_txt="The Pinecone API key",
     )
-    environment: str = configfield(
-        "environment", 
-        default="gcp-starter",
-        help_txt="The Pinecone environment (e.g., gcp-starter, us-west1-gcp)",
+    cloud: str = configfield(
+        "cloud", 
+        default="aws",
+        help_txt="The Pinecone cloud (e.g., aws, gcp, azure)",
+    )
+    region: str = configfield(
+        "region",
+        default="us-east-1",
+        help_txt="The Pinecone region (e.g., us-east-1, us-west-1, eu-west-1)",
     )
     index_name: str = configfield(
         "index_name",
@@ -75,6 +80,12 @@ class VectorStoreConfig(ConfigWizard):
         "search_type",
         default="hybrid", # dense or hybrid
         help_txt="Flag to control search type - 'dense' retrieval or 'hybrid' retrieval",
+    )
+
+    url: str = configfield(
+        "url",
+        default="",
+        help_txt="The URL of the vector store",
     )
 
 
@@ -240,30 +251,32 @@ class TextSplitterConfig(ConfigWizard):
 
 @configclass
 class EmbeddingConfig(ConfigWizard):
-    """Configuration class for the Embeddings.
-
-    :cvar model_name: The name of the huggingface embedding model.
-    """
-
+    """Configuration class for the Embeddings."""
+    
     model_name: str = configfield(
         "model_name",
-        default="snowflake/arctic-embed-l",
-        help_txt="The name of huggingface embedding model.",
+        default="multilingual-e5-large",  # Changed to Pinecone's default model
+        help_txt="The name of the Pinecone hosted embedding model.",
     )
     model_engine: str = configfield(
         "model_engine",
-        default="nvidia-ai-endpoints",
-        help_txt="The server type of the hosted model. Allowed values are hugginface",
+        default="pinecone",  # Changed to indicate Pinecone inference
+        help_txt="The server type of the hosted model. Allowed values are pinecone, nvidia-ai-endpoints",
     )
     dimensions: int = configfield(
         "dimensions",
-        default=2048,
-        help_txt="The required dimensions of the embedding model. Currently utilized for vector DB indexing.",
+        default=1024,
+        help_txt="The required dimensions of the embedding model.",
     )
-    server_url: str = configfield(
-        "server_url",
-        default="",
-        help_txt="The url of the server hosting nemo embedding model",
+    input_type: str = configfield(
+        "input_type",
+        default="passage",
+        help_txt="Input type for Pinecone inference (passage or query)",
+    )
+    truncate: str = configfield(
+        "truncate",
+        default="END",
+        help_txt="Truncation strategy for Pinecone inference",
     )
 
 
