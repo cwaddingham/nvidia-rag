@@ -8,7 +8,7 @@ services:
       context: ../../
       dockerfile: src/ingestor_server/Dockerfile
     # start the server on port 8082 with 4 workers for improved latency on concurrent requests.
-    command: --port 8082 --host 0.0.0.0 --workers 1
+    command: --port 8080 --host 0.0.0.0 --workers 1
 
     # Common customizations to the pipeline can be controlled using env variables
     environment:
@@ -74,22 +74,22 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'  # Limit to 4 CPU cores
-          memory: 8G
+          cpus: '1'
+          memory: 2G
         reservations:
-          cpus: '2'
-          memory: 4G
+          cpus: '0.5'
+          memory: 1G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-    depends_on:
-      pinecone-local:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+    #depends_on:
+    #  pinecone-local:
+    #    condition: service_healthy
+    #  minio:
+    #    condition: service_healthy
     networks:
       - nvidia-rag
 
@@ -100,88 +100,42 @@ services:
 
   nv-ingest-ms-runtime:
     image: nvcr.io/nvidia/nemo-microservices/nv-ingest:25.3.0
-    platform: linux/amd64  # Force amd64 platform
+    platform: linux/amd64
     volumes:
       - ${DATASET_ROOT:-./data}:/workspace/data
     ports:
-      # HTTP API
       - "7670:7670"
-      # Simple Broker
       - "7671:7671"
-    cap_add:
-      - sys_nice
     environment:
-      # Audio model not used in this RAG version
-      - AUDIO_GRPC_ENDPOINT=audio:50051
-      - AUDIO_INFER_PROTOCOL=grpc
-      - CUDA_VISIBLE_DEVICES=0
-      - MAX_INGEST_PROCESS_WORKERS=${MAX_INGEST_PROCESS_WORKERS:-4}
-      - EMBEDDING_NIM_MODEL_NAME=${EMBEDDING_NIM_MODEL_NAME:-${APP_EMBEDDINGS_MODELNAME:-nvidia/llama-3.2-nv-embedqa-1b-v2}}
-      # Incase of self-hosted embedding model, use the endpoint url as - https://integrate.api.nvidia.com/v1
-      - EMBEDDING_NIM_ENDPOINT=${EMBEDDING_NIM_ENDPOINT:-${APP_EMBEDDINGS_SERVERURL-http://nemoretriever-embedding-ms:8000/v1}}
-      - INGEST_LOG_LEVEL=DEFAULT
-      - INGEST_EDGE_BUFFER_SIZE=64
-      # Message client for development
-      #- MESSAGE_CLIENT_HOST=0.0.0.0
-      #- MESSAGE_CLIENT_PORT=7671
-      #- MESSAGE_CLIENT_TYPE=simple # Configure the ingest service to use the simple broker
-      # Message client for production
+      # Simplify configuration - disable optional features
+      - APP_NVINGEST_EXTRACTTABLES=False
+      - APP_NVINGEST_EXTRACTCHARTS=False
+      - APP_NVINGEST_EXTRACTIMAGES=False
+      - MAX_INGEST_PROCESS_WORKERS=1
+      - READY_CHECK_ALL_COMPONENTS=False
+      - PYTHONUNBUFFERED=1
+      - LOGLEVEL=DEBUG
+      # Basic required configs
       - MESSAGE_CLIENT_HOST=redis
       - MESSAGE_CLIENT_PORT=6379
       - MESSAGE_CLIENT_TYPE=redis
-      - MINIO_BUCKET=${MINIO_BUCKET:-nv-ingest}
-      - MRC_IGNORE_NUMA_CHECK=1
-      - NEMORETRIEVER_PARSE_HTTP_ENDPOINT=http://nemoretriever-parse:8000/v1/chat/completions
-      - NEMORETRIEVER_PARSE_INFER_PROTOCOL=http
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-nvidiaapikey}
-      - NGC_API_KEY=${NVIDIA_API_KEY:-nvidiaapikey}
-      - NVIDIA_BUILD_API_KEY=${NVIDIA_API_KEY:-nvidiaapikey}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317
-      # Self-hosted paddle endpoints.
-      - PADDLE_GRPC_ENDPOINT=paddle:8001
-      - PADDLE_HTTP_ENDPOINT=${PADDLE_HTTP_ENDPOINT-http://paddle:8000/v1/infer}
-      - PADDLE_INFER_PROTOCOL=${PADDLE_INFER_PROTOCOL-grpc}
-      # build.nvidia.com hosted paddle endpoints.
-      #- PADDLE_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/baidu/paddleocr
-      #- PADDLE_INFER_PROTOCOL=http
-      - READY_CHECK_ALL_COMPONENTS=False
-      - REDIS_MORPHEUS_TASK_QUEUE=morpheus_task_queue
-      # Self-hosted redis endpoints.
-      # build.nvidia.com hosted yolox endpoints.
-      #- YOLOX_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemoretriever-page-elements-v2
-      #- YOLOX_INFER_PROTOCOL=http
-      - YOLOX_GRPC_ENDPOINT=page-elements:8001
-      - YOLOX_HTTP_ENDPOINT=${YOLOX_HTTP_ENDPOINT:-http://page-elements:8000/v1/infer}
-      - YOLOX_INFER_PROTOCOL=${YOLOX_INFER_PROTOCOL:-grpc}
-      # build.nvidia.com hosted yolox-graphics-elements endpoints.
-      #- YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemoretriever-graphic-elements-v1
-      #- YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL=http
-      - YOLOX_GRAPHIC_ELEMENTS_GRPC_ENDPOINT=graphic-elements:8001
-      - YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT=${YOLOX_GRAPHIC_ELEMENTS_HTTP_ENDPOINT:-http://graphic-elements:8000/v1/infer}
-      - YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL=${YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL:-grpc}
-      # build.nvidia.com hosted  yolox-table-elements endpoints.
-      #- YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT=https://ai.api.nvidia.com/v1/cv/nvidia/nemoretriever-table-structure-v1
-      #- YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL=http
-      - YOLOX_TABLE_STRUCTURE_GRPC_ENDPOINT=table-structure:8001
-      - YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT=${YOLOX_TABLE_STRUCTURE_HTTP_ENDPOINT:-http://table-structure:8000/v1/infer}
-      - YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL=${YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL:-grpc}
-      # Incase of nvidia-hosted caption model, use the endpoint url as - https://ai.api.nvidia.com/v1/gr/meta/llama-3.2-11b-vision-instruct/chat/completions
-      - VLM_CAPTION_ENDPOINT=${VLM_CAPTION_ENDPOINT:-http://vlm-ms:8000/v1/chat/completions}
-      - VLM_CAPTION_MODEL_NAME=${VLM_CAPTION_MODEL_NAME:-meta/llama-3.2-11b-vision-instruct}
-      - MODEL_PREDOWNLOAD_PATH=${MODEL_PREDOWNLOAD_PATH:-/workspace/models/}
-    healthcheck:
-      test: curl --fail http://nv-ingest-ms-runtime:7670/v1/health/ready || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 20
+      # Disable unused services
+      - PADDLE_INFER_PROTOCOL=none
+      - YOLOX_INFER_PROTOCOL=none
+      - YOLOX_GRAPHIC_ELEMENTS_INFER_PROTOCOL=none
+      - YOLOX_TABLE_STRUCTURE_INFER_PROTOCOL=none
     deploy:
       resources:
         limits:
-          cpus: '4'  # Limit to 4 CPU cores
-          memory: 8G
-        reservations:
           cpus: '2'
           memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    networks:
+      - nvidia-rag
+    restart: on-failure:3
 
 networks:
   default:

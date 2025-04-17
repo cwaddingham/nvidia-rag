@@ -11,8 +11,12 @@ services:
       - nvidia-rag
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5080/indexes", "-H", "Api-Key: pclocal", "-H", "X-Pinecone-API-Version: 2025-01"]
-      interval: 300s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "curl", "-f", "http://pinecone-local:5080/indexes", "-H", "Api-Key: pclocal", "-H", "X-Pinecone-API-Version: 2025-01"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
+
+networks:
+  nvidia-rag:
+    driver: bridge

@@ -8,9 +8,6 @@ services:
       # Set context to repo's root directory
       context: ../../
       dockerfile: src/rag_server/Dockerfile
-    # start the server on port 8081 with 8 workers for improved latency on concurrent requests.
-    command: ["--port", "8081", "--host", "0.0.0.0", "--workers", "8"]
-
     # Common customizations to the pipeline can be controlled using env variables
     environment:
       # Path to example directory relative to root
@@ -111,27 +108,28 @@ services:
       PINECONE_API_KEY: "dummy-key-for-local"
 
     ports:
-      - "8081:8081"
+      - "8000:8000"
     expose:
-      - "8081"
+      - "8000"
     shm_size: 5gb
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
           cpus: '1'
           memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 2G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
-    depends_on:
-      pinecone-local:
-        condition: service_healthy
+    #depends_on:
+    #  pinecone-local:
+    #    condition: service_healthy
+    #  ingestor-server:
+    #    condition: service_healthy
     networks:
       - nvidia-rag
 
@@ -151,16 +149,16 @@ services:
         # Model name for reranking
         NEXT_PUBLIC_RERANKER_MODEL: ${APP_RANKING_MODELNAME:-nvidia/llama-3.2-nv-rerankqa-1b-v2}
         # URL for rag server container
-        NEXT_PUBLIC_CHAT_BASE_URL: "http://rag-server:8081/v1"
+        NEXT_PUBLIC_CHAT_BASE_URL: ${RAG_SERVER_URL:-http://localhost:8000}/v1
         # URL for ingestor container
-        NEXT_PUBLIC_VDB_BASE_URL: "http://ingestor-server:8082/v1"
+        NEXT_PUBLIC_VDB_BASE_URL: ${INGESTOR_SERVER_URL:-http://localhost:8080}/v1
     ports:
       - "8090:3000"
     expose:
       - "3000"
-    depends_on:
-      rag-server:
-        condition: service_healthy
+    #depends_on:
+    #  rag-server:
+    #    condition: service_healthy
     deploy:
       resources:
         limits:
@@ -169,11 +167,6 @@ services:
         reservations:
           cpus: '0.5'
           memory: 1G
-
-  pinecone-local:
-    extends:
-      file: vectordb-local.yaml
-      service: pinecone-local
 
 networks:
   nvidia-rag:

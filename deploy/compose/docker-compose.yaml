@@ -2,5 +2,7 @@ include:
   - base.yaml
   - vectordb.yaml
 
-profiles:
-  - local  # Enable local profile by default
+services:
+  # Your services here...
+  pinecone-local:
+    profiles: ["local"]  # This is the correct way to specify profiles

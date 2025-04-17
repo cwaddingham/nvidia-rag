@@ -19,8 +19,17 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+      start_period: 10s
     networks:
       - nvidia-rag
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
   ingestor-server:
     extends:
       file: docker-compose-ingestor-server.yaml

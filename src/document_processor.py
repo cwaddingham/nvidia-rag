@@ -2,6 +2,7 @@ from typing import List
 import os
 import logging
 import time
+from pathlib import Path
 from http import HTTPStatus
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from nv_ingest_client.message_clients.rest.rest_client import RestClient
@@ -30,8 +31,8 @@ class DocumentProcessor:
                 raise AuthenticationError("NVIDIA_API_KEY environment variable not set")
 
             self.client = NvIngestClient(
-                message_client_hostname="ingestor-server",
-                vectorstore_url=os.getenv("APP_VECTORSTORE_URL", "http://pinecone-local:5081")
+                message_client_hostname=os.getenv("APP_NVINGEST_MESSAGECLIENTHOSTNAME", "nv-ingest-ms-runtime"),
+                message_client_port=int(os.getenv("APP_NVINGEST_MESSAGECLIENTPORT", "7670"))
             )
 
         except RequestException as e:
@@ -49,7 +50,7 @@ class DocumentProcessor:
     def process_documents(self, data_dir: str) -> List[dict]:
         """Process documents using NVIDIA's NV-Ingest pipeline"""
         try:
-            if not os.path.exists(data_dir):
+            if not Path(data_dir).exists():
                 raise DocumentProcessorError(f"Directory not found: {data_dir}")
 
             logger.info(f"Starting document processing from {data_dir}")
