@@ -17,8 +17,9 @@ services:
 
       ##===Vector DB specific configurations===
       # Pinecone configuration 
-      PINECONE_API_KEY: ${PINECONE_API_KEY:?"PINECONE_API_KEY is required"}
-      PINECONE_INDEX_NAME: ${COLLECTION_NAME:-multimodal_data}
+      PINECONE_API_KEY: pclocal
+      PINECONE_HOST: http://pinecone-local:5080
+      PINECONE_INDEX_NAME: rag-index
 
       # vectorstore collection name to store embeddings
       COLLECTION_NAME: ${COLLECTION_NAME:-multimodal_data}
@@ -60,10 +61,10 @@ services:
       LOGLEVEL: ${LOGLEVEL:-INFO}
 
       # Minio configuration for binary content storage
-      MINIO_ENDPOINT: "minio:9010"
-      MINIO_ACCESSKEY: "minioadmin"
-      MINIO_SECRETKEY: "minioadmin"
-      MINIO_BUCKET: "nv-ingest"
+      MINIO_ENDPOINT: minio:9010
+      MINIO_ACCESSKEY: minioadmin
+      MINIO_SECRETKEY: minioadmin
+      MINIO_BUCKET: citations
 
     ports:
       - "8082:8082"
@@ -84,6 +85,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    depends_on:
+      pinecone-local:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - nvidia-rag
 
   redis:
     image: "redis/redis-stack"

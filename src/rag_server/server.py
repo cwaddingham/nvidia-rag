@@ -35,20 +35,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from pydantic import Field
-from pydantic import constr
-from pydantic import validator
+from pydantic import BaseModel, Field, constr, validator, field_validator
 from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from fastapi.staticfiles import StaticFiles
 
 from pinecone import Pinecone, ServerlessSpec, PineconeException
 from src.document_processor import DocumentProcessor
 from src.utils.pinecone_utils import get_pinecone_client, get_index
+from src.utils import get_config
+from src.utils import get_minio_operator
 from src.rag_server.tracing import instrument
-from src.configuration import get_config
-from src.minio_operator import get_minio_operator
-from src.rag_server.retriever import UnstructuredRAG  # Add this import
+from src.rag_server.retriever import UnstructuredRAG 
 
 logging.basicConfig(level=os.environ.get('LOGLEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
@@ -251,36 +248,28 @@ class Prompt(BaseModel):
     # seed: int = Field(42, description="If specified, our system will make a best effort to sample deterministically,
     #       such that repeated requests with the same seed and parameters should return the same result.")
     # bad: List[str] = Field(None, description="A word or list of words not to use. The words are case sensitive.")
-    stop: List[constr(max_length=256)] = Field(
-        description="A string or a list of strings where the API will stop generating further tokens."
-        "The returned text will not contain the stop sequence.",
-        max_items=256,
-        default=[],
-    )
+    stop: List[str] = Field(..., max_length=256)
     # stream: bool = Field(True, description="If set, partial message deltas will be sent.
     #           Tokens will be sent as data-only server-sent events (SSE) as they become available
     #           (JSON responses are prefixed by data:), with the stream terminated by a data: [DONE] message.")
 
-    @validator('use_knowledge_base')
+    @field_validator('use_knowledge_base')
     @classmethod
     def sanitize_use_kb(cls, v):
-        """ Feild validator function to santize user populated feilds from HTML"""
         v = bleach.clean(str(v), strip=True)
         try:
             return {"True": True, "False": False}[v]
         except KeyError as e:
             raise ValueError("use_knowledge_base must be a boolean value") from e
 
-    @validator('temperature')
+    @field_validator('temperature')
     @classmethod
     def sanitize_temperature(cls, v):
-        """ Feild validator function to santize user populated feilds from HTML"""
         return float(bleach.clean(str(v), strip=True))
 
-    @validator('top_p')
+    @field_validator('top_p')
     @classmethod
     def sanitize_top_p(cls, v):
-        """ Feild validator function to santize user populated feilds from HTML"""
         return float(bleach.clean(str(v), strip=True))
 
     # Validator to normalize model information

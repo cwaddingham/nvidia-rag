@@ -106,6 +106,10 @@ services:
       # reflection llm server url. If "", Nvidia hosted API is used
       REFLECTION_LLM_SERVERURL: ${REFLECTION_LLM_SERVERURL-"nim-llm-mixtral-8x22b:8000"}
 
+      # Pinecone configuration
+      PINECONE_HOST: "http://pinecone-local:5080"
+      PINECONE_API_KEY: "dummy-key-for-local"
+
     ports:
       - "8081:8081"
     expose:
@@ -125,6 +129,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    depends_on:
+      pinecone-local:
+        condition: service_healthy
+    networks:
+      - nvidia-rag
 
   # Sample UI container which interacts with APIs exposed by rag-server container
   rag-playground:
@@ -161,6 +170,11 @@ services:
           cpus: '0.5'
           memory: 1G
 
+  pinecone-local:
+    extends:
+      file: vectordb-local.yaml
+      service: pinecone-local
+
 networks:
-  default:
-    name: nvidia-rag
+  nvidia-rag:
+    driver: bridge

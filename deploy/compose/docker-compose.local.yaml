@@ -19,3 +19,13 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    networks:
+      - nvidia-rag
+  ingestor-server:
+    extends:
+      file: docker-compose-ingestor-server.yaml
+      service: ingestor-server
+
+networks:
+  nvidia-rag:
+    driver: bridge

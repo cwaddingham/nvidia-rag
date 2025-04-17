@@ -37,7 +37,7 @@ COPY ./ /workspace/
 
 # Environment variables for Pinecone Local
 ENV PINECONE_API_KEY="dummy-key-for-local"
-ENV PINECONE_HOST="http://pinecone:5080"
+ENV PINECONE_HOST="http://pinecone-local:5080"
 ENV PINECONE_INDEX_NAME="rag-index"
 ENV NV_INGEST_HOST="http://nv-ingest:7671"
 ENV NVIDIA_API_KEY=${NVIDIA_API_KEY}

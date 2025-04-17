@@ -34,7 +34,7 @@ def get_pinecone_client() -> Pinecone:
         if is_local:
             client = Pinecone(
                 api_key="pclocal",
-                host=os.getenv("PINECONE_HOST", "http://localhost:5081")
+                host=os.getenv("PINECONE_HOST", "http://pinecone-local:5080")
             )
         else:
             api_key = os.getenv("PINECONE_API_KEY")

@@ -66,4 +66,9 @@ ENV PYTHONPATH=/workspace:/workspace/src
 # Copy application code
 COPY ./ /workspace/
 
+# Environment variables for Pinecone Local
+ENV PINECONE_API_KEY="dummy-key-for-local"
+ENV PINECONE_HOST="http://localhost:5080"
+ENV PINECONE_INDEX_NAME="rag-index"
+
 ENTRYPOINT ["uvicorn", "src.ingestor_server.server:app"]

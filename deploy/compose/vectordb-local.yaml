@@ -1,14 +1,18 @@
 services:
-  # Local Pinecone setup
   pinecone-local:
     image: ghcr.io/pinecone-io/pinecone-local:latest
     environment: 
-      PORT: 5081
+      PORT: 5080
       PINECONE_HOST: localhost
     ports: 
-      - "5081-5090:5081-5090"
+      - "5080-5090:5080-5090"
     platform: linux/amd64
+    networks:
+      - nvidia-rag
 
-networks:
-  default:
-    name: nvidia-rag 
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5080/indexes", "-H", "Api-Key: pclocal", "-H", "X-Pinecone-API-Version: 2025-01"]
+      interval: 300s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

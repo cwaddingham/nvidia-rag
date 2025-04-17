@@ -10,7 +10,7 @@ services:
       - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME}
       - PINECONE_DIMENSION=${PINECONE_DIMENSION:-1536}
       - PINECONE_METRIC=${PINECONE_METRIC:-cosine}
+    networks:
+      - nvidia-rag
 
-networks:
-  default:
-    name: nvidia-rag 
+# Remove networks section completely 
